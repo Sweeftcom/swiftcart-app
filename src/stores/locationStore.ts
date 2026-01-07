@@ -1,22 +1,35 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Address, Store } from '@/types';
+import { DbStore, DbAddress, DbAurangabadLocation } from '@/lib/supabase-types';
+
+interface SelectedLocation {
+  name: string;
+  lat: number;
+  lng: number;
+  pincode?: string;
+  type?: string;
+}
 
 interface LocationState {
-  currentAddress: Address | null;
-  savedAddresses: Address[];
-  nearestStore: Store | null;
+  currentAddress: DbAddress | null;
+  savedAddresses: DbAddress[];
+  nearestStore: DbStore | null;
+  selectedLocation: SelectedLocation | null;
   isLocationLoading: boolean;
   locationError: string | null;
+  hasCompletedLocationSelection: boolean;
   
   // Actions
-  setCurrentAddress: (address: Address) => void;
-  addAddress: (address: Address) => void;
-  updateAddress: (id: string, address: Partial<Address>) => void;
+  setCurrentAddress: (address: DbAddress) => void;
+  addAddress: (address: DbAddress) => void;
+  updateAddress: (id: string, address: Partial<DbAddress>) => void;
   removeAddress: (id: string) => void;
-  setNearestStore: (store: Store) => void;
+  setNearestStore: (store: DbStore) => void;
+  setSelectedLocation: (location: SelectedLocation) => void;
   setLocationLoading: (loading: boolean) => void;
   setLocationError: (error: string | null) => void;
+  setHasCompletedLocationSelection: (completed: boolean) => void;
+  clearLocation: () => void;
 }
 
 export const useLocationStore = create<LocationState>()(
@@ -25,20 +38,22 @@ export const useLocationStore = create<LocationState>()(
       currentAddress: null,
       savedAddresses: [],
       nearestStore: null,
+      selectedLocation: null,
       isLocationLoading: false,
       locationError: null,
+      hasCompletedLocationSelection: false,
 
-      setCurrentAddress: (address: Address) => {
+      setCurrentAddress: (address: DbAddress) => {
         set({ currentAddress: address, locationError: null });
       },
 
-      addAddress: (address: Address) => {
+      addAddress: (address: DbAddress) => {
         set((state) => ({
           savedAddresses: [...state.savedAddresses, address],
         }));
       },
 
-      updateAddress: (id: string, updates: Partial<Address>) => {
+      updateAddress: (id: string, updates: Partial<DbAddress>) => {
         set((state) => ({
           savedAddresses: state.savedAddresses.map((addr) =>
             addr.id === id ? { ...addr, ...updates } : addr
@@ -52,8 +67,16 @@ export const useLocationStore = create<LocationState>()(
         }));
       },
 
-      setNearestStore: (store: Store) => {
+      setNearestStore: (store: DbStore) => {
         set({ nearestStore: store });
+      },
+
+      setSelectedLocation: (location: SelectedLocation) => {
+        set({ 
+          selectedLocation: location, 
+          locationError: null,
+          hasCompletedLocationSelection: true 
+        });
       },
 
       setLocationLoading: (loading: boolean) => {
@@ -63,9 +86,22 @@ export const useLocationStore = create<LocationState>()(
       setLocationError: (error: string | null) => {
         set({ locationError: error });
       },
+
+      setHasCompletedLocationSelection: (completed: boolean) => {
+        set({ hasCompletedLocationSelection: completed });
+      },
+
+      clearLocation: () => {
+        set({
+          currentAddress: null,
+          selectedLocation: null,
+          nearestStore: null,
+          hasCompletedLocationSelection: false,
+        });
+      },
     }),
     {
-      name: 'blinkit-location',
+      name: 'sweeftcom-location',
     }
   )
 );

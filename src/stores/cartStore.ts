@@ -1,29 +1,40 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { CartItem, Product, Coupon } from '@/types';
+import { DbProduct, DbCoupon } from '@/lib/supabase-types';
+
+export interface CartItem {
+  id: string;
+  product: DbProduct;
+  quantity: number;
+  addedAt: Date;
+}
 
 interface CartState {
   items: CartItem[];
-  appliedCoupon: Coupon | null;
+  appliedCoupon: DbCoupon | null;
   
   // Actions
-  addItem: (product: Product) => void;
+  addItem: (product: DbProduct) => void;
   removeItem: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
   clearCart: () => void;
-  applyCoupon: (coupon: Coupon) => void;
+  applyCoupon: (coupon: DbCoupon) => void;
   removeCoupon: () => void;
   
   // Computed
   getItemCount: () => number;
   getSubtotal: () => number;
+  getTotalMrp: () => number;
+  getSavings: () => number;
   getDiscount: () => number;
   getDeliveryFee: () => number;
+  getTax: () => number;
   getTotal: () => number;
 }
 
 const DELIVERY_FEE = 25;
 const FREE_DELIVERY_THRESHOLD = 199;
+const TAX_RATE = 0; // GST included in prices
 
 export const useCartStore = create<CartState>()(
   persist(
@@ -31,7 +42,7 @@ export const useCartStore = create<CartState>()(
       items: [],
       appliedCoupon: null,
 
-      addItem: (product: Product) => {
+      addItem: (product: DbProduct) => {
         set((state) => {
           const existingItem = state.items.find(
             (item) => item.product.id === product.id
@@ -43,9 +54,7 @@ export const useCartStore = create<CartState>()(
                 item.product.id === product.id
                   ? { 
                       ...item, 
-                      quantity: Math.min(item.quantity + 1, product.maxQuantity),
-                      isReserved: true,
-                      reservationExpiry: new Date(Date.now() + 10 * 60 * 1000)
+                      quantity: Math.min(item.quantity + 1, product.max_quantity_per_order),
                     }
                   : item
               ),
@@ -56,8 +65,7 @@ export const useCartStore = create<CartState>()(
             id: `cart-${product.id}-${Date.now()}`,
             product,
             quantity: 1,
-            isReserved: true,
-            reservationExpiry: new Date(Date.now() + 10 * 60 * 1000),
+            addedAt: new Date(),
           };
 
           return { items: [...state.items, newItem] };
@@ -83,8 +91,7 @@ export const useCartStore = create<CartState>()(
               item.product.id === productId
                 ? { 
                     ...item, 
-                    quantity: Math.min(quantity, item.product.maxQuantity),
-                    reservationExpiry: new Date(Date.now() + 10 * 60 * 1000)
+                    quantity: Math.min(quantity, item.product.max_quantity_per_order),
                   }
                 : item
             ),
@@ -96,7 +103,7 @@ export const useCartStore = create<CartState>()(
         set({ items: [], appliedCoupon: null });
       },
 
-      applyCoupon: (coupon: Coupon) => {
+      applyCoupon: (coupon: DbCoupon) => {
         set({ appliedCoupon: coupon });
       },
 
@@ -110,23 +117,36 @@ export const useCartStore = create<CartState>()(
 
       getSubtotal: () => {
         return get().items.reduce(
-          (total, item) => total + item.product.price * item.quantity,
+          (total, item) => total + Number(item.product.price) * item.quantity,
           0
         );
+      },
+
+      getTotalMrp: () => {
+        return get().items.reduce(
+          (total, item) => total + Number(item.product.mrp) * item.quantity,
+          0
+        );
+      },
+
+      getSavings: () => {
+        const mrp = get().getTotalMrp();
+        const subtotal = get().getSubtotal();
+        return mrp - subtotal;
       },
 
       getDiscount: () => {
         const coupon = get().appliedCoupon;
         const subtotal = get().getSubtotal();
 
-        if (!coupon || subtotal < coupon.minOrderValue) return 0;
+        if (!coupon || subtotal < Number(coupon.min_order_value)) return 0;
 
-        if (coupon.discountType === 'percentage') {
-          const discount = (subtotal * coupon.discountValue) / 100;
-          return coupon.maxDiscount ? Math.min(discount, coupon.maxDiscount) : discount;
+        if (coupon.discount_type === 'percentage') {
+          const discount = (subtotal * Number(coupon.discount_value)) / 100;
+          return coupon.max_discount ? Math.min(discount, Number(coupon.max_discount)) : discount;
         }
 
-        return coupon.discountValue;
+        return Number(coupon.discount_value);
       },
 
       getDeliveryFee: () => {
@@ -134,12 +154,17 @@ export const useCartStore = create<CartState>()(
         return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
       },
 
+      getTax: () => {
+        const subtotal = get().getSubtotal() - get().getDiscount();
+        return subtotal * TAX_RATE;
+      },
+
       getTotal: () => {
-        return get().getSubtotal() - get().getDiscount() + get().getDeliveryFee();
+        return get().getSubtotal() - get().getDiscount() + get().getDeliveryFee() + get().getTax();
       },
     }),
     {
-      name: 'blinkit-cart',
+      name: 'sweeftcom-cart',
     }
   )
 );

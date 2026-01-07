@@ -1,12 +1,19 @@
 import { motion } from 'framer-motion';
-import { MapPin, ChevronDown, Clock, Search, User, ShoppingBag, Zap } from 'lucide-react';
+import { MapPin, ChevronDown, Search, User, ShoppingBag, Zap } from 'lucide-react';
 import { useLocationStore } from '@/stores/locationStore';
 import { useCartStore } from '@/stores/cartStore';
-import { Link } from 'react-router-dom';
+import { useDeliveryEta } from '@/hooks/useDeliveryEta';
+import { Link, useNavigate } from 'react-router-dom';
 
 export const Header = () => {
-  const { nearestStore } = useLocationStore();
+  const navigate = useNavigate();
+  const { selectedLocation } = useLocationStore();
   const itemCount = useCartStore((state) => state.getItemCount());
+  const eta = useDeliveryEta();
+
+  const handleLocationClick = () => {
+    navigate('/location');
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-card shadow-card">
@@ -15,6 +22,7 @@ export const Header = () => {
         <div className="flex items-center justify-between gap-4">
           <motion.button
             whileTap={{ scale: 0.98 }}
+            onClick={handleLocationClick}
             className="flex items-center gap-2 flex-1 min-w-0"
           >
             <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
@@ -22,11 +30,16 @@ export const Header = () => {
             </div>
             <div className="flex-1 min-w-0 text-left">
               <div className="flex items-center gap-1">
-                <span className="font-semibold text-foreground">Home</span>
+                <span className="font-semibold text-foreground">
+                  {selectedLocation?.name || 'Select Location'}
+                </span>
                 <ChevronDown className="w-4 h-4 text-muted-foreground" />
               </div>
               <p className="text-xs text-muted-foreground truncate">
-                123 Brigade Road, Koramangala
+                {selectedLocation 
+                  ? `${selectedLocation.type || 'Area'}, Aurangabad`
+                  : 'Tap to select your location'
+                }
               </p>
             </div>
           </motion.button>
@@ -64,20 +77,18 @@ export const Header = () => {
         </div>
 
         {/* Delivery Time Badge */}
-        {nearestStore && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-2 flex items-center gap-2"
-          >
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary">
-              <Zap className="w-3.5 h-3.5 text-primary" />
-              <span className="text-xs font-medium text-foreground">
-                Delivery in {nearestStore.estimatedDeliveryMinutes} mins
-              </span>
-            </div>
-          </motion.div>
-        )}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-2 flex items-center gap-2"
+        >
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary">
+            <Zap className="w-3.5 h-3.5 text-primary" />
+            <span className="text-xs font-medium text-foreground">
+              Delivery in {eta.text}
+            </span>
+          </div>
+        </motion.div>
 
         {/* Search Bar */}
         <Link to="/search">
