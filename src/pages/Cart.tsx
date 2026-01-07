@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion';
-import { ArrowLeft, Minus, Plus, Trash2, Clock, Zap, Tag, ChevronRight, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Minus, Plus, Trash2, Tag, ChevronRight, ShieldCheck, Percent, Zap } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCartStore } from '@/stores/cartStore';
 import { useLocationStore } from '@/stores/locationStore';
+import { useDeliveryEta } from '@/hooks/useDeliveryEta';
 
 const Cart = () => {
   const navigate = useNavigate();
@@ -13,13 +14,16 @@ const Cart = () => {
     clearCart,
     appliedCoupon,
     getSubtotal,
+    getSavings,
     getDiscount,
     getDeliveryFee,
     getTotal,
   } = useCartStore();
   const { nearestStore } = useLocationStore();
+  const eta = useDeliveryEta();
 
   const subtotal = getSubtotal();
+  const savings = getSavings();
   const discount = getDiscount();
   const deliveryFee = getDeliveryFee();
   const total = getTotal();
@@ -52,7 +56,7 @@ const Cart = () => {
           <p className="text-muted-foreground text-center mb-6">
             Start adding items to your cart and we'll deliver them in minutes!
           </p>
-          <Link to="/">
+          <Link to="/home">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -96,25 +100,23 @@ const Cart = () => {
 
       <main className="container py-4 space-y-4">
         {/* Delivery Info */}
-        {nearestStore && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3 p-4 rounded-2xl bg-secondary"
-          >
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Zap className="w-6 h-6 text-primary" />
-            </div>
-            <div className="flex-1">
-              <p className="font-semibold text-foreground">
-                Delivery in {nearestStore.estimatedDeliveryMinutes} minutes
-              </p>
-              <p className="text-sm text-muted-foreground">
-                From {nearestStore.name}
-              </p>
-            </div>
-          </motion.div>
-        )}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-3 p-4 rounded-2xl bg-secondary"
+        >
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Zap className="w-6 h-6 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-foreground">
+              Delivery in {eta.text}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              From {nearestStore?.name || 'SweeftCom Store'}
+            </p>
+          </div>
+        </motion.div>
 
         {/* Cart Items */}
         <div className="bg-card rounded-2xl overflow-hidden shadow-card">
@@ -130,19 +132,31 @@ const Cart = () => {
                 transition={{ delay: index * 0.05 }}
                 className="p-4 flex items-center gap-4"
               >
-                <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
-                  <span className="text-2xl">🛒</span>
+                <div className="w-16 h-16 rounded-xl overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
+                  {item.product.images && item.product.images.length > 0 ? (
+                    <img 
+                      src={item.product.images[0]} 
+                      alt={item.product.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl">🛒</span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h4 className="font-medium text-foreground line-clamp-2">
                     {item.product.name}
                   </h4>
-                  <p className="text-sm text-muted-foreground">{item.product.unit}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {item.product.pack_size || item.product.weight || item.product.unit}
+                  </p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="font-bold text-foreground">₹{item.product.price}</span>
-                    {item.product.mrp > item.product.price && (
+                    <span className="font-bold text-foreground">
+                      ₹{Number(item.product.price).toFixed(0)}
+                    </span>
+                    {Number(item.product.mrp) > Number(item.product.price) && (
                       <span className="text-xs text-muted-foreground line-through">
-                        ₹{item.product.mrp}
+                        ₹{Number(item.product.mrp).toFixed(0)}
                       </span>
                     )}
                   </div>
@@ -181,27 +195,50 @@ const Cart = () => {
           </div>
         </div>
 
-        {/* Coupon Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-card rounded-2xl p-4 shadow-card"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                <Tag className="w-5 h-5 text-accent-foreground" />
-              </div>
-              <div>
-                <p className="font-semibold text-foreground">Apply Coupon</p>
-                <p className="text-sm text-muted-foreground">
-                  {appliedCoupon ? appliedCoupon.code : 'Save more on your order'}
-                </p>
-              </div>
+        {/* Savings Badge */}
+        {savings > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-primary/10 rounded-2xl p-4 flex items-center gap-3"
+          >
+            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+              <Percent className="w-5 h-5 text-primary" />
             </div>
-            <ChevronRight className="w-5 h-5 text-muted-foreground" />
-          </div>
-        </motion.div>
+            <div>
+              <p className="font-semibold text-primary">
+                You're saving ₹{savings.toFixed(0)}!
+              </p>
+              <p className="text-sm text-muted-foreground">
+                On this order compared to MRP
+              </p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Coupon Section */}
+        <Link to="/coupons">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-card rounded-2xl p-4 shadow-card"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
+                  <Tag className="w-5 h-5 text-accent-foreground" />
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">Apply Coupon</p>
+                  <p className="text-sm text-muted-foreground">
+                    {appliedCoupon ? `${appliedCoupon.code} applied` : 'Save more on your order'}
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </div>
+          </motion.div>
+        </Link>
 
         {/* Bill Details */}
         <motion.div
@@ -215,6 +252,12 @@ const Cart = () => {
               <span className="text-muted-foreground">Item Total</span>
               <span className="text-foreground">₹{subtotal.toFixed(0)}</span>
             </div>
+            {savings > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-primary">Product Discount</span>
+                <span className="text-primary">-₹{savings.toFixed(0)}</span>
+              </div>
+            )}
             {discount > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-primary">Coupon Discount</span>
