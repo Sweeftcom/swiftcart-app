@@ -1,10 +1,17 @@
 import { motion } from 'framer-motion';
-import { Banner } from '@/types';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
+interface SimpleBanner {
+  id: string;
+  title: string;
+  subtitle?: string;
+  image: string;
+  backgroundColor: string;
+  deepLink?: string;
+}
+
 interface PromoBannersProps {
-  banners: Banner[];
+  banners: SimpleBanner[];
 }
 
 export const PromoBanners = ({ banners }: PromoBannersProps) => {

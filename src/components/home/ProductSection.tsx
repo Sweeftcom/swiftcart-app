@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion';
-import { Product } from '@/types';
+import { DbProduct } from '@/lib/supabase-types';
 import { ProductCard } from './ProductCard';
 
 interface ProductSectionProps {
   title: string;
   subtitle?: string;
-  products: Product[];
+  products: DbProduct[];
   showViewAll?: boolean;
 }
 

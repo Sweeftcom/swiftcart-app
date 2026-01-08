@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Search, X, TrendingUp, Clock } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { mockProducts, mockCategories } from '@/data/mockData';
+import { useNavigate, Link } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { DbProduct, DbCategory } from '@/lib/supabase-types';
 import { ProductCard } from '@/components/home/ProductCard';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { CartFloatingButton } from '@/components/cart/CartFloatingButton';
@@ -10,14 +11,46 @@ import { CartFloatingButton } from '@/components/cart/CartFloatingButton';
 const SearchPage = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
-  const [isFocused, setIsFocused] = useState(true);
+  const [products, setProducts] = useState<DbProduct[]>([]);
+  const [categories, setCategories] = useState<DbCategory[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  const filteredProducts = query.length >= 2
-    ? mockProducts.filter((product) =>
-        product.name.toLowerCase().includes(query.toLowerCase()) ||
-        product.brand.toLowerCase().includes(query.toLowerCase())
-      )
-    : [];
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const { data } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order')
+        .limit(6);
+      
+      if (data) setCategories(data as DbCategory[]);
+    };
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
+    const searchProducts = async () => {
+      if (query.length < 2) {
+        setProducts([]);
+        return;
+      }
+
+      setIsSearching(true);
+      const { data } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_available', true)
+        .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
+        .limit(20);
+      
+      if (data) setProducts(data as DbProduct[]);
+      setIsSearching(false);
+    };
+
+    const debounce = setTimeout(searchProducts, 300);
+    return () => clearTimeout(debounce);
+  }, [query]);
 
   const trendingSearches = [
     'Milk', 'Bread', 'Eggs', 'Banana', 'Rice', 'Atta', 'Maggi', 'Curd'
@@ -47,8 +80,6 @@ const SearchPage = () => {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
                 placeholder="Search for products..."
                 autoFocus
                 className="w-full pl-12 pr-10 py-3 rounded-xl bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -117,26 +148,31 @@ const SearchPage = () => {
             <div>
               <h3 className="font-semibold text-foreground mb-3">Browse Categories</h3>
               <div className="grid grid-cols-2 gap-3">
-                {mockCategories.slice(0, 6).map((category) => (
-                  <motion.button
-                    key={category.id}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex items-center gap-3 p-4 rounded-xl bg-card shadow-card"
-                  >
-                    <span className="text-2xl">{category.icon}</span>
-                    <span className="font-medium text-foreground text-sm">{category.name}</span>
-                  </motion.button>
+                {categories.map((category) => (
+                  <Link key={category.id} to={`/category/${category.slug}`}>
+                    <motion.div
+                      whileTap={{ scale: 0.98 }}
+                      className="flex items-center gap-3 p-4 rounded-xl bg-card shadow-card"
+                    >
+                      <span className="text-2xl">{category.icon || '📦'}</span>
+                      <span className="font-medium text-foreground text-sm">{category.name}</span>
+                    </motion.div>
+                  </Link>
                 ))}
               </div>
             </div>
           </>
-        ) : filteredProducts.length > 0 ? (
+        ) : isSearching ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : products.length > 0 ? (
           <>
             <p className="text-sm text-muted-foreground">
-              {filteredProducts.length} results for "{query}"
+              {products.length} results for "{query}"
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {filteredProducts.map((product, index) => (
+              {products.map((product, index) => (
                 <motion.div
                   key={product.id}
                   initial={{ opacity: 0, y: 20 }}
