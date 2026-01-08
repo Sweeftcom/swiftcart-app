@@ -1,12 +1,30 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
-import { mockCategories } from '@/data/mockData';
+import { supabase } from '@/integrations/supabase/client';
+import { DbCategory } from '@/lib/supabase-types';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { CartFloatingButton } from '@/components/cart/CartFloatingButton';
 
 const Categories = () => {
   const navigate = useNavigate();
+  const [categories, setCategories] = useState<DbCategory[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const { data } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order');
+      
+      if (data) setCategories(data as DbCategory[]);
+      setIsLoading(false);
+    };
+    fetchCategories();
+  }, []);
 
   const categoryColors = [
     'bg-green-100', 'bg-blue-100', 'bg-yellow-100', 'bg-purple-100',
@@ -31,25 +49,31 @@ const Categories = () => {
       </header>
 
       <main className="container py-4">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {mockCategories.map((category, index) => (
-            <Link key={category.id} to={`/category/${category.slug}`}>
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className={`${categoryColors[index % categoryColors.length]} rounded-2xl p-4 aspect-square flex flex-col items-center justify-center gap-3 cursor-pointer transition-all hover:shadow-elevated`}
-              >
-                <span className="text-5xl">{category.icon}</span>
-                <span className="font-semibold text-foreground text-center text-sm">
-                  {category.name}
-                </span>
-              </motion.div>
-            </Link>
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {categories.map((category, index) => (
+              <Link key={category.id} to={`/category/${category.slug}`}>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.05 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className={`${categoryColors[index % categoryColors.length]} rounded-2xl p-4 aspect-square flex flex-col items-center justify-center gap-3 cursor-pointer transition-all hover:shadow-elevated`}
+                >
+                  <span className="text-5xl">{category.icon || '📦'}</span>
+                  <span className="font-semibold text-foreground text-center text-sm">
+                    {category.name}
+                  </span>
+                </motion.div>
+              </Link>
+            ))}
+          </div>
+        )}
       </main>
 
       <CartFloatingButton />
