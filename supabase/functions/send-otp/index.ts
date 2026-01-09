@@ -16,41 +16,42 @@ function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-async function sendTwilioSms(phone: string, otp: string): Promise<boolean> {
-  const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
-  const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
-  const twilioPhone = Deno.env.get("TWILIO_PHONE_NUMBER");
+async function sendFast2SMS(phone: string, otp: string): Promise<boolean> {
+  const apiKey = Deno.env.get("FAST2SMS_API_KEY");
 
-  if (!accountSid || !authToken || !twilioPhone) {
-    console.error("Twilio credentials not configured");
+  if (!apiKey) {
+    console.error("Fast2SMS API key not configured");
     throw new Error("SMS service not configured");
   }
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  // Normalize phone number (remove +91 or any prefix, keep last 10 digits)
+  const normalizedPhone = phone.replace(/\D/g, "").slice(-10);
+
+  const url = "https://www.fast2sms.com/dev/bulkV2";
   
-  const body = new URLSearchParams({
-    To: phone.startsWith("+") ? phone : `+91${phone}`,
-    From: twilioPhone,
-    Body: `Your SweeftCom verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`,
+  const params = new URLSearchParams({
+    authorization: apiKey,
+    route: "otp",
+    variables_values: otp,
+    flash: "0",
+    numbers: normalizedPhone,
   });
 
-  const response = await fetch(url, {
-    method: "POST",
+  const response = await fetch(`${url}?${params.toString()}`, {
+    method: "GET",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${accountSid}:${authToken}`)}`,
+      "cache-control": "no-cache",
     },
-    body: body.toString(),
   });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    console.error("Twilio API error:", errorData);
-    throw new Error(errorData.message || "Failed to send SMS");
-  }
 
   const data = await response.json();
-  console.log("SMS sent successfully:", data.sid);
+  
+  if (!data.return) {
+    console.error("Fast2SMS API error:", data);
+    throw new Error(data.message || "Failed to send SMS");
+  }
+
+  console.log("SMS sent successfully:", data.request_id);
   return true;
 }
 
@@ -78,8 +79,8 @@ serve(async (req: Request): Promise<Response> => {
     const normalizedPhone = phone.replace(/\D/g, "").slice(-10);
     otpStore.set(normalizedPhone, { otp, expiresAt });
 
-    // Send via Twilio
-    await sendTwilioSms(phone, otp);
+    // Send via Fast2SMS
+    await sendFast2SMS(phone, otp);
 
     console.log(`OTP sent to ${phone}: ${otp}`); // Remove in production
 
