@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Mail, ArrowRight, Zap, ChevronLeft, Shield, UserPlus, LogIn } from 'lucide-react';
+import { Mail, ArrowRight, Zap, ChevronLeft, Shield, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocationStore } from '@/stores/locationStore';
 import { toast } from 'sonner';
@@ -9,13 +9,14 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 
 const Auth = () => {
   const navigate = useNavigate();
-  const { signInWithOtp, verifyOtp, user } = useAuth();
+  const { signInWithOtp, verifyOtp, signInWithGoogle, user } = useAuth();
   const { hasCompletedLocationSelection } = useLocationStore();
-  const [step, setStep] = useState<'email' | 'otp'>('email');
+  const [step, setStep] = useState<'welcome' | 'email' | 'otp'>('welcome');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(true);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isExistingUser, setIsExistingUser] = useState(false);
 
   // Redirect if already logged in
   if (user) {
@@ -31,6 +32,20 @@ const Auth = () => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        toast.error(error.message || 'Failed to sign in with Google');
+      }
+    } catch (err) {
+      toast.error('Failed to sign in with Google');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
   const handleEmailSubmit = async () => {
     if (!isValidEmail(email)) {
       toast.error('Please enter a valid email address');
@@ -39,11 +54,16 @@ const Auth = () => {
 
     setIsLoading(true);
     try {
-      const { error } = await signInWithOtp(email);
+      const { error, isExistingUser: existing } = await signInWithOtp(email);
       if (error) {
         toast.error(error.message || 'Failed to send OTP');
       } else {
-        toast.success('OTP sent to your email! 📧');
+        setIsExistingUser(existing || false);
+        if (existing) {
+          toast.success('Welcome back! OTP sent to your email 📧');
+        } else {
+          toast.success('OTP sent to your email! 📧');
+        }
         setStep('otp');
       }
     } catch (err) {
@@ -61,11 +81,11 @@ const Auth = () => {
 
     setIsLoading(true);
     try {
-      const { error } = await verifyOtp(email, otp);
+      const { error, isNewUser } = await verifyOtp(email, otp);
       if (error) {
         toast.error(error.message || 'Invalid OTP');
       } else {
-        toast.success(isNewUser ? 'Account created successfully! 🎉' : 'Welcome back! 👋');
+        toast.success(isNewUser ? 'Welcome to SweeftCom! 🎉' : 'Welcome back! 👋');
         navigate('/location', { replace: true });
       }
     } catch (err) {
@@ -91,129 +111,243 @@ const Auth = () => {
     }
   };
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.2,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0 },
+  };
+
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-secondary/20 flex flex-col overflow-hidden">
+      {/* Animated Background Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          className="absolute top-20 -left-20 w-72 h-72 bg-primary/10 rounded-full blur-3xl"
+          animate={{
+            x: [0, 30, 0],
+            y: [0, -20, 0],
+          }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute bottom-40 -right-20 w-96 h-96 bg-accent/10 rounded-full blur-3xl"
+          animate={{
+            x: [0, -40, 0],
+            y: [0, 30, 0],
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute top-1/2 left-1/2 w-64 h-64 bg-primary/5 rounded-full blur-2xl"
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+        />
+      </div>
+
       {/* Header */}
-      <div className="bg-gradient-to-br from-primary via-primary to-primary/90 pt-safe relative overflow-hidden">
-        {/* Decorative circles */}
-        <div className="absolute -top-20 -right-20 w-40 h-40 bg-primary-foreground/10 rounded-full" />
-        <div className="absolute top-10 -left-10 w-24 h-24 bg-primary-foreground/5 rounded-full" />
-        
-        <div className="px-4 py-6 relative z-10">
+      <div className="relative z-10 pt-safe">
+        <div className="px-6 py-8">
           <AnimatePresence mode="wait">
-            {step === 'otp' && (
+            {step !== 'welcome' && (
               <motion.button
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -10 }}
                 onClick={() => {
-                  setStep('email');
-                  setOtp('');
+                  if (step === 'otp') {
+                    setStep('email');
+                    setOtp('');
+                  } else {
+                    setStep('welcome');
+                    setEmail('');
+                  }
                 }}
-                className="mb-4 flex items-center gap-1 text-primary-foreground/80 hover:text-primary-foreground transition-colors"
+                className="mb-6 flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <ChevronLeft className="w-5 h-5" />
                 <span className="text-sm font-medium">Back</span>
               </motion.button>
             )}
           </AnimatePresence>
-          
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-4"
-          >
-            <motion.div 
-              className="w-14 h-14 rounded-2xl bg-primary-foreground flex items-center justify-center shadow-lg"
-              animate={{ 
-                boxShadow: [
-                  "0 0 20px rgba(255,255,255,0.2)",
-                  "0 0 40px rgba(255,255,255,0.4)",
-                  "0 0 20px rgba(255,255,255,0.2)",
-                ]
-              }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              <Zap className="w-7 h-7 text-primary" fill="currentColor" />
-            </motion.div>
-            <div>
-              <h1 className="text-2xl font-bold text-primary-foreground">SweeftCom</h1>
-              <p className="text-primary-foreground/70 text-sm">⚡ Delivery in minutes</p>
-            </div>
-          </motion.div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 px-4 py-8">
+      <div className="flex-1 px-6 relative z-10">
         <AnimatePresence mode="wait">
-          {step === 'email' ? (
+          {step === 'welcome' && (
+            <motion.div
+              key="welcome"
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              exit={{ opacity: 0, x: -50 }}
+              className="flex flex-col h-full"
+            >
+              {/* Logo & Branding */}
+              <motion.div variants={itemVariants} className="text-center mb-8">
+                <motion.div 
+                  className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-2xl shadow-primary/30 mb-6"
+                  animate={{ 
+                    boxShadow: [
+                      "0 25px 50px -12px rgba(var(--primary), 0.2)",
+                      "0 25px 50px -12px rgba(var(--primary), 0.4)",
+                      "0 25px 50px -12px rgba(var(--primary), 0.2)",
+                    ]
+                  }}
+                  transition={{ duration: 3, repeat: Infinity }}
+                >
+                  <Zap className="w-10 h-10 text-primary-foreground" fill="currentColor" />
+                </motion.div>
+                <h1 className="text-4xl font-bold text-foreground mb-2">SweeftCom</h1>
+                <p className="text-muted-foreground text-lg">Delivery in minutes ⚡</p>
+              </motion.div>
+
+              {/* Features */}
+              <motion.div variants={itemVariants} className="space-y-3 mb-10">
+                {[
+                  { emoji: '🚀', text: '10-minute lightning delivery' },
+                  { emoji: '🥬', text: 'Fresh groceries & essentials' },
+                  { emoji: '💎', text: 'Best prices, always' },
+                ].map((item, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.5 + i * 0.1 }}
+                    className="flex items-center gap-4 bg-card/50 backdrop-blur-sm p-4 rounded-2xl border border-border/50"
+                  >
+                    <span className="text-2xl">{item.emoji}</span>
+                    <span className="font-medium text-foreground">{item.text}</span>
+                  </motion.div>
+                ))}
+              </motion.div>
+
+              {/* Auth Buttons */}
+              <motion.div variants={itemVariants} className="space-y-4 mt-auto pb-8">
+                {/* Google Sign In */}
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleGoogleSignIn}
+                  disabled={isGoogleLoading}
+                  className="w-full py-4 rounded-2xl bg-card border-2 border-border hover:border-primary/50 font-semibold text-lg flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-xl disabled:opacity-50"
+                >
+                  {isGoogleLoading ? (
+                    <motion.div
+                      className="w-6 h-6 border-2 border-muted-foreground/30 border-t-foreground rounded-full"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    />
+                  ) : (
+                    <>
+                      <svg className="w-6 h-6" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        />
+                      </svg>
+                      <span className="text-foreground">Continue with Google</span>
+                    </>
+                  )}
+                </motion.button>
+
+                {/* Divider */}
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-sm text-muted-foreground font-medium">or</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                {/* Email Button */}
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setStep('email')}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold text-lg flex items-center justify-center gap-3 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all"
+                >
+                  <Mail className="w-5 h-5" />
+                  <span>Continue with Email</span>
+                </motion.button>
+
+                <p className="text-xs text-center text-muted-foreground pt-2">
+                  By continuing, you agree to our{' '}
+                  <span className="text-primary">Terms</span> &{' '}
+                  <span className="text-primary">Privacy Policy</span>
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {step === 'email' && (
             <motion.div
               key="email"
-              initial={{ opacity: 0, x: 20 }}
+              initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              exit={{ opacity: 0, x: -50 }}
               className="space-y-6"
             >
-              {/* Toggle buttons */}
-              <div className="flex gap-2 p-1 bg-secondary rounded-2xl">
-                <button
-                  onClick={() => setIsNewUser(true)}
-                  className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-semibold transition-all ${
-                    isNewUser 
-                      ? 'bg-primary text-primary-foreground shadow-md' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Sign Up
-                </button>
-                <button
-                  onClick={() => setIsNewUser(false)}
-                  className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center gap-2 font-semibold transition-all ${
-                    !isNewUser 
-                      ? 'bg-primary text-primary-foreground shadow-md' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <LogIn className="w-4 h-4" />
-                  Login
-                </button>
-              </div>
-
-              <div>
-                <h2 className="text-2xl font-bold text-foreground">
-                  {isNewUser ? 'Create your account' : 'Welcome back!'}
-                </h2>
-                <p className="text-muted-foreground mt-1">
-                  {isNewUser 
-                    ? 'Enter your email to get started' 
-                    : 'Enter your email to login'}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <Sparkles className="w-6 h-6 text-primary" />
+                  <h2 className="text-3xl font-bold text-foreground">
+                    Let's get started
+                  </h2>
+                </div>
+                <p className="text-muted-foreground text-lg">
+                  Enter your email and we'll send you a magic code
                 </p>
-              </div>
+              </motion.div>
 
-              <div className="space-y-4">
-                <div className="relative">
-                  <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-border focus-within:border-primary focus-within:shadow-md transition-all bg-card">
+              <motion.div 
+                className="space-y-4"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="relative group">
+                  <div className="absolute -inset-0.5 bg-gradient-to-r from-primary to-accent rounded-2xl opacity-0 group-focus-within:opacity-100 blur transition-all duration-300" />
+                  <div className="relative flex items-center gap-3 p-4 rounded-2xl border-2 border-border focus-within:border-transparent bg-card transition-all">
                     <Mail className="w-5 h-5 text-muted-foreground" />
                     <input
                       type="email"
-                      placeholder="Enter your email"
+                      placeholder="your@email.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value.toLowerCase().trim())}
+                      onKeyDown={(e) => e.key === 'Enter' && handleEmailSubmit()}
                       className="flex-1 bg-transparent outline-none text-lg font-medium text-foreground placeholder:text-muted-foreground"
                       autoFocus
                     />
                   </div>
-                  {email.length > 0 && !isValidEmail(email) && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="text-sm text-muted-foreground mt-2 ml-1"
-                    >
-                      Please enter a valid email
-                    </motion.p>
-                  )}
                 </div>
 
                 <motion.button
@@ -221,7 +355,7 @@ const Auth = () => {
                   whileTap={{ scale: 0.99 }}
                   onClick={handleEmailSubmit}
                   disabled={!isValidEmail(email) || isLoading}
-                  className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-shadow"
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-xl transition-all"
                 >
                   {isLoading ? (
                     <motion.div
@@ -231,73 +365,51 @@ const Auth = () => {
                     />
                   ) : (
                     <>
-                      <span>{isNewUser ? 'Get OTP' : 'Continue'}</span>
+                      <span>Send Magic Code</span>
                       <ArrowRight className="w-5 h-5" />
                     </>
                   )}
                 </motion.button>
-              </div>
-
-              <p className="text-sm text-muted-foreground text-center px-4">
-                By continuing, you agree to our{' '}
-                <span className="text-primary font-medium">Terms of Service</span> and{' '}
-                <span className="text-primary font-medium">Privacy Policy</span>
-              </p>
-
-              {/* Features highlight for new users */}
-              {isNewUser && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="mt-8 space-y-3"
-                >
-                  <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Why choose SweeftCom?</p>
-                  <div className="space-y-2">
-                    {[
-                      { emoji: '⚡', text: '10-minute delivery' },
-                      { emoji: '🛒', text: 'Fresh groceries & essentials' },
-                      { emoji: '💰', text: 'Best prices guaranteed' },
-                    ].map((item, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.4 + i * 0.1 }}
-                        className="flex items-center gap-3 text-foreground"
-                      >
-                        <span className="text-xl">{item.emoji}</span>
-                        <span className="font-medium">{item.text}</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
+              </motion.div>
             </motion.div>
-          ) : (
+          )}
+
+          {step === 'otp' && (
             <motion.div
               key="otp"
-              initial={{ opacity: 0, x: 20 }}
+              initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              exit={{ opacity: 0, x: -50 }}
               className="space-y-6"
             >
-              <div>
-                <h2 className="text-2xl font-bold text-foreground">
-                  Verify your email
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+              >
+                <h2 className="text-3xl font-bold text-foreground mb-2">
+                  {isExistingUser ? 'Welcome back! 👋' : 'Check your inbox ✉️'}
                 </h2>
-                <p className="text-muted-foreground mt-1">
-                  Enter the 6-digit OTP sent to{' '}
-                  <span className="font-semibold text-foreground">{email}</span>
+                <p className="text-muted-foreground">
+                  {isExistingUser ? (
+                    <>We found your account! Enter the code sent to <span className="font-semibold text-foreground">{email}</span></>
+                  ) : (
+                    <>Enter the 6-digit code sent to <span className="font-semibold text-foreground">{email}</span></>
+                  )}
                 </p>
-              </div>
+              </motion.div>
 
-              <div className="space-y-6">
+              <motion.div 
+                className="space-y-6"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
                 <motion.div 
                   className="flex justify-center"
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: 0.2 }}
+                  transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
                 >
                   <InputOTP
                     value={otp}
@@ -309,7 +421,7 @@ const Auth = () => {
                         <InputOTPSlot
                           key={i}
                           index={i}
-                          className="w-12 h-14 text-xl font-bold rounded-xl border-2 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          className="w-12 h-14 text-xl font-bold rounded-xl border-2 bg-card focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                         />
                       ))}
                     </InputOTPGroup>
@@ -321,7 +433,7 @@ const Auth = () => {
                   whileTap={{ scale: 0.99 }}
                   onClick={handleOtpSubmit}
                   disabled={otp.length !== 6 || isLoading}
-                  className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-shadow"
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-xl transition-all"
                 >
                   {isLoading ? (
                     <motion.div
@@ -331,25 +443,30 @@ const Auth = () => {
                     />
                   ) : (
                     <>
-                      <span>{isNewUser ? 'Create Account' : 'Verify & Login'}</span>
+                      <span>{isExistingUser ? 'Sign In' : 'Create Account'}</span>
                       <ArrowRight className="w-5 h-5" />
                     </>
                   )}
                 </motion.button>
 
-                <div className="text-center space-y-3">
+                <motion.div 
+                  className="text-center space-y-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                >
                   <p className="text-sm text-muted-foreground">
-                    Didn't receive the OTP?
+                    Didn't receive the code?
                   </p>
                   <button
                     onClick={handleResendOtp}
                     disabled={isLoading}
-                    className="text-primary font-semibold hover:underline disabled:opacity-50"
+                    className="text-primary font-semibold hover:underline disabled:opacity-50 transition-all"
                   >
-                    Resend OTP
+                    Resend Code
                   </button>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -357,12 +474,12 @@ const Auth = () => {
 
       {/* Trust badge */}
       <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="px-4 pb-8"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="px-6 pb-8 relative z-10"
       >
-        <div className="flex items-center justify-center gap-2 text-muted-foreground bg-secondary/50 py-3 rounded-xl">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground bg-card/50 backdrop-blur-sm py-3 rounded-2xl border border-border/50">
           <Shield className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium">Your data is 100% secure</span>
         </div>
