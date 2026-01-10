@@ -8,8 +8,9 @@ interface AuthContextType {
   session: Session | null;
   profile: DbProfile | null;
   isLoading: boolean;
-  signInWithOtp: (email: string) => Promise<{ error: Error | null }>;
+  signInWithOtp: (email: string) => Promise<{ error: Error | null; isExistingUser?: boolean }>;
   verifyOtp: (email: string, token: string) => Promise<{ error: Error | null; isNewUser?: boolean }>;
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<DbProfile>) => Promise<{ error: Error | null }>;
 }
@@ -65,8 +66,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const signInWithOtp = async (email: string): Promise<{ error: Error | null }> => {
+  const checkExistingUser = async (email: string): Promise<boolean> => {
+    // Check if user exists in profiles table
+    const { data } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('email', email)
+      .maybeSingle();
+    
+    return !!data;
+  };
+
+  const signInWithOtp = async (email: string): Promise<{ error: Error | null; isExistingUser?: boolean }> => {
     try {
+      const isExistingUser = await checkExistingUser(email);
+      
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -78,7 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return { error: new Error(error.message) };
       }
 
-      return { error: null };
+      return { error: null, isExistingUser };
     } catch (err: any) {
       return { error: new Error(err.message || 'Network error') };
     }
@@ -114,6 +128,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const signInWithGoogle = async (): Promise<{ error: Error | null }> => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/location`,
+        },
+      });
+
+      if (error) {
+        return { error: new Error(error.message) };
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      return { error: new Error(err.message || 'Google sign-in failed') };
+    }
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
@@ -145,6 +178,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         isLoading,
         signInWithOtp,
         verifyOtp,
+        signInWithGoogle,
         signOut,
         updateProfile,
       }}
