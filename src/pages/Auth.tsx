@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Phone, ArrowRight, Zap, ChevronLeft, Shield, UserPlus, LogIn } from 'lucide-react';
+import { Mail, ArrowRight, Zap, ChevronLeft, Shield, UserPlus, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocationStore } from '@/stores/locationStore';
 import { toast } from 'sonner';
@@ -11,8 +11,8 @@ const Auth = () => {
   const navigate = useNavigate();
   const { signInWithOtp, verifyOtp, user } = useAuth();
   const { hasCompletedLocationSelection } = useLocationStore();
-  const [step, setStep] = useState<'phone' | 'otp'>('phone');
-  const [phone, setPhone] = useState('');
+  const [step, setStep] = useState<'email' | 'otp'>('email');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(true);
@@ -27,19 +27,23 @@ const Auth = () => {
     return null;
   }
 
-  const handlePhoneSubmit = async () => {
-    if (phone.length !== 10) {
-      toast.error('Please enter a valid 10-digit phone number');
+  const isValidEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
+  const handleEmailSubmit = async () => {
+    if (!isValidEmail(email)) {
+      toast.error('Please enter a valid email address');
       return;
     }
 
     setIsLoading(true);
     try {
-      const { error } = await signInWithOtp(`+91${phone}`);
+      const { error } = await signInWithOtp(email);
       if (error) {
         toast.error(error.message || 'Failed to send OTP');
       } else {
-        toast.success('OTP sent to your phone! 📱');
+        toast.success('OTP sent to your email! 📧');
         setStep('otp');
       }
     } catch (err) {
@@ -57,7 +61,7 @@ const Auth = () => {
 
     setIsLoading(true);
     try {
-      const { error } = await verifyOtp(`+91${phone}`, otp);
+      const { error } = await verifyOtp(email, otp);
       if (error) {
         toast.error(error.message || 'Invalid OTP');
       } else {
@@ -74,11 +78,11 @@ const Auth = () => {
   const handleResendOtp = async () => {
     setIsLoading(true);
     try {
-      const { error } = await signInWithOtp(`+91${phone}`);
+      const { error } = await signInWithOtp(email);
       if (error) {
         toast.error(error.message || 'Failed to resend OTP');
       } else {
-        toast.success('OTP resent! 📱');
+        toast.success('OTP resent! 📧');
       }
     } catch (err) {
       toast.error('Failed to resend OTP');
@@ -103,7 +107,7 @@ const Auth = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -10 }}
                 onClick={() => {
-                  setStep('phone');
+                  setStep('email');
                   setOtp('');
                 }}
                 className="mb-4 flex items-center gap-1 text-primary-foreground/80 hover:text-primary-foreground transition-colors"
@@ -143,9 +147,9 @@ const Auth = () => {
       {/* Content */}
       <div className="flex-1 px-4 py-8">
         <AnimatePresence mode="wait">
-          {step === 'phone' ? (
+          {step === 'email' ? (
             <motion.div
-              key="phone"
+              key="email"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
@@ -183,35 +187,31 @@ const Auth = () => {
                 </h2>
                 <p className="text-muted-foreground mt-1">
                   {isNewUser 
-                    ? 'Enter your phone number to get started' 
-                    : 'Enter your phone number to login'}
+                    ? 'Enter your email to get started' 
+                    : 'Enter your email to login'}
                 </p>
               </div>
 
               <div className="space-y-4">
                 <div className="relative">
                   <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-border focus-within:border-primary focus-within:shadow-md transition-all bg-card">
-                    <div className="flex items-center gap-2 pr-3 border-r border-border">
-                      <span className="text-lg">🇮🇳</span>
-                      <span className="font-semibold text-foreground">+91</span>
-                    </div>
-                    <Phone className="w-5 h-5 text-muted-foreground" />
+                    <Mail className="w-5 h-5 text-muted-foreground" />
                     <input
-                      type="tel"
-                      placeholder="Enter phone number"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      type="email"
+                      placeholder="Enter your email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value.toLowerCase().trim())}
                       className="flex-1 bg-transparent outline-none text-lg font-medium text-foreground placeholder:text-muted-foreground"
                       autoFocus
                     />
                   </div>
-                  {phone.length > 0 && phone.length < 10 && (
+                  {email.length > 0 && !isValidEmail(email) && (
                     <motion.p
                       initial={{ opacity: 0, y: -5 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="text-sm text-muted-foreground mt-2 ml-1"
                     >
-                      {10 - phone.length} more digits needed
+                      Please enter a valid email
                     </motion.p>
                   )}
                 </div>
@@ -219,8 +219,8 @@ const Auth = () => {
                 <motion.button
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
-                  onClick={handlePhoneSubmit}
-                  disabled={phone.length !== 10 || isLoading}
+                  onClick={handleEmailSubmit}
+                  disabled={!isValidEmail(email) || isLoading}
                   className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-shadow"
                 >
                   {isLoading ? (
@@ -284,11 +284,11 @@ const Auth = () => {
             >
               <div>
                 <h2 className="text-2xl font-bold text-foreground">
-                  Verify your number
+                  Verify your email
                 </h2>
                 <p className="text-muted-foreground mt-1">
                   Enter the 6-digit OTP sent to{' '}
-                  <span className="font-semibold text-foreground">+91 {phone}</span>
+                  <span className="font-semibold text-foreground">{email}</span>
                 </p>
               </div>
 

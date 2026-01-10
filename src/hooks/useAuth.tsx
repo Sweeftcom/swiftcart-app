@@ -8,15 +8,13 @@ interface AuthContextType {
   session: Session | null;
   profile: DbProfile | null;
   isLoading: boolean;
-  signInWithOtp: (phone: string) => Promise<{ error: Error | null }>;
-  verifyOtp: (phone: string, token: string) => Promise<{ error: Error | null; isNewUser?: boolean }>;
+  signInWithOtp: (email: string) => Promise<{ error: Error | null }>;
+  verifyOtp: (email: string, token: string) => Promise<{ error: Error | null; isNewUser?: boolean }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<DbProfile>) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -67,20 +65,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const signInWithOtp = async (phone: string): Promise<{ error: Error | null }> => {
+  const signInWithOtp = async (email: string): Promise<{ error: Error | null }> => {
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: true,
         },
-        body: JSON.stringify({ phone }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        return { error: new Error(data.error || 'Failed to send OTP') };
+      if (error) {
+        return { error: new Error(error.message) };
       }
 
       return { error: null };
@@ -89,75 +84,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const verifyOtp = async (phone: string, token: string): Promise<{ error: Error | null; isNewUser?: boolean }> => {
+  const verifyOtp = async (email: string, token: string): Promise<{ error: Error | null; isNewUser?: boolean }> => {
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone, otp: token }),
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'email',
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        return { error: new Error(data.error || 'Invalid OTP') };
+      if (error) {
+        return { error: new Error(error.message) };
       }
 
-      // After successful verification, sign in with Supabase
-      // Use the phone auth with a known token for seamless session
-      if (data.user?.id) {
-        // Create a mock user object for local state
-        const mockUser = {
-          id: data.user.id,
-          phone: data.user.phone,
-          aud: 'authenticated',
-          role: 'authenticated',
-          email: '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          app_metadata: {},
-          user_metadata: { phone: data.user.phone },
-        } as unknown as User;
-
-        setUser(mockUser);
+      // Check if user is new by looking at profile
+      let isNewUser = false;
+      if (data.user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('user_id', data.user.id)
+          .maybeSingle();
         
-        // Store user data in localStorage for persistence
-        localStorage.setItem('sweeftcom_user', JSON.stringify(mockUser));
-        
-        // Fetch profile
-        await fetchProfile(data.user.id);
+        isNewUser = !profileData?.name;
       }
 
-      return { error: null, isNewUser: data.isNewUser };
+      return { error: null, isNewUser };
     } catch (err: any) {
       return { error: new Error(err.message || 'Verification failed') };
     }
   };
-
-  // Load user from localStorage on mount
-  useEffect(() => {
-    const storedUser = localStorage.getItem('sweeftcom_user');
-    if (storedUser && !user) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser as User);
-        if (parsedUser.id) {
-          fetchProfile(parsedUser.id);
-        }
-      } catch (e) {
-        localStorage.removeItem('sweeftcom_user');
-      }
-    }
-  }, []);
 
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
     setUser(null);
     setSession(null);
-    localStorage.removeItem('sweeftcom_user');
   };
 
   const updateProfile = async (updates: Partial<DbProfile>) => {
