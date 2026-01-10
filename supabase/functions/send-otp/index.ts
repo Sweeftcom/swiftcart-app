@@ -28,11 +28,12 @@ async function sendFast2SMS(phone: string, otp: string): Promise<boolean> {
   const normalizedPhone = phone.replace(/\D/g, "").slice(-10);
 
   const url = "https://www.fast2sms.com/dev/bulkV2";
+  const message = `Your verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`;
   
   const params = new URLSearchParams({
     authorization: apiKey,
-    route: "otp",
-    variables_values: otp,
+    route: "q",
+    message: message,
     flash: "0",
     numbers: normalizedPhone,
   });
