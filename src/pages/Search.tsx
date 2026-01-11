@@ -29,6 +29,12 @@ const SearchPage = () => {
     fetchCategories();
   }, []);
 
+  // Sanitize search query to prevent PostgREST filter injection
+  const sanitizeSearchQuery = (input: string): string => {
+    // Remove PostgREST special characters that could alter query logic
+    return input.replace(/[,().%*]/g, ' ').trim().slice(0, 100);
+  };
+
   useEffect(() => {
     const searchProducts = async () => {
       if (query.length < 2) {
@@ -37,11 +43,21 @@ const SearchPage = () => {
       }
 
       setIsSearching(true);
+      
+      // Sanitize input to prevent filter injection attacks
+      const sanitizedQuery = sanitizeSearchQuery(query);
+      
+      if (!sanitizedQuery) {
+        setProducts([]);
+        setIsSearching(false);
+        return;
+      }
+      
       const { data } = await supabase
         .from('products')
         .select('*')
         .eq('is_available', true)
-        .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
+        .or(`name.ilike.%${sanitizedQuery}%,brand.ilike.%${sanitizedQuery}%`)
         .limit(20);
       
       if (data) setProducts(data as DbProduct[]);

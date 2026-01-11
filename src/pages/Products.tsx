@@ -32,6 +32,12 @@ const Products = () => {
   
   const PAGE_SIZE = 20;
 
+  // Sanitize search query to prevent PostgREST filter injection
+  const sanitizeSearchQuery = (input: string): string => {
+    // Remove PostgREST special characters that could alter query logic
+    return input.replace(/[,().%*]/g, ' ').trim().slice(0, 100);
+  };
+
   useEffect(() => {
     const fetchCategories = async () => {
       const { data } = await supabase
@@ -58,9 +64,12 @@ const Products = () => {
       query = query.eq('category_id', selectedCategory);
     }
 
-    // Apply search
+    // Apply search with sanitized input
     if (searchQuery) {
-      query = query.ilike('name', `%${searchQuery}%`);
+      const sanitizedQuery = sanitizeSearchQuery(searchQuery);
+      if (sanitizedQuery) {
+        query = query.ilike('name', `%${sanitizedQuery}%`);
+      }
     }
 
     // Apply veg/non-veg filter
