@@ -11,8 +11,44 @@ interface VerifyRequest {
   otp: string;
 }
 
-// In-memory OTP store (shared with send-otp in production use database/Redis)
-const otpStore = new Map<string, { otp: string; expiresAt: number }>();
+// Rate limiting configuration for verification attempts
+const MAX_VERIFY_ATTEMPTS = 5; // Max 5 attempts per phone per hour
+const LOCKOUT_DURATION_MS = 60 * 60 * 1000; // 1 hour lockout after max attempts
+
+async function hashOtp(otp: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(otp + Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.slice(0, 16));
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkVerifyRateLimit(supabase: any, phone: string): Promise<{ allowed: boolean; message?: string }> {
+  const windowStart = new Date(Date.now() - LOCKOUT_DURATION_MS).toISOString();
+  
+  // Check failed verification attempts
+  const { count } = await supabase
+    .from('otp_verify_attempts')
+    .select('*', { count: 'exact', head: true })
+    .eq('phone', phone)
+    .eq('success', false)
+    .gte('created_at', windowStart);
+  
+  if ((count || 0) >= MAX_VERIFY_ATTEMPTS) {
+    return { allowed: false, message: "Too many failed attempts. Please try again in 1 hour." };
+  }
+  
+  return { allowed: true };
+}
+
+async function recordVerifyAttempt(supabase: any, phone: string, success: boolean): Promise<void> {
+  await supabase
+    .from('otp_verify_attempts')
+    .insert({
+      phone,
+      success,
+    });
+}
 
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
@@ -30,38 +66,15 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const normalizedPhone = phone.replace(/\D/g, "").slice(-10);
-    const storedData = otpStore.get(normalizedPhone);
-
-    // For development/testing: accept "123456" as valid OTP
-    const isTestOtp = otp === "123456";
-    
-    if (!isTestOtp) {
-      if (!storedData) {
-        return new Response(
-          JSON.stringify({ error: "OTP expired or not found. Please request a new one." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      if (Date.now() > storedData.expiresAt) {
-        otpStore.delete(normalizedPhone);
-        return new Response(
-          JSON.stringify({ error: "OTP has expired. Please request a new one." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      if (storedData.otp !== otp) {
-        return new Response(
-          JSON.stringify({ error: "Invalid OTP. Please try again." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Clear used OTP
-      otpStore.delete(normalizedPhone);
+    // Validate OTP format (6 digits only)
+    if (!/^\d{6}$/.test(otp)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid OTP format" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
+
+    const normalizedPhone = phone.replace(/\D/g, "").slice(-10);
 
     // Create Supabase admin client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -74,38 +87,68 @@ serve(async (req: Request): Promise<Response> => {
       },
     });
 
+    // Check verification rate limit
+    const rateLimitResult = await checkVerifyRateLimit(supabase, normalizedPhone);
+    if (!rateLimitResult.allowed) {
+      return new Response(
+        JSON.stringify({ error: rateLimitResult.message }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Look up the OTP from database
+    const { data: otpRecord, error: otpError } = await supabase
+      .from('otp_rate_limits')
+      .select('*')
+      .eq('phone', normalizedPhone)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (otpError || !otpRecord) {
+      await recordVerifyAttempt(supabase, normalizedPhone, false);
+      return new Response(
+        JSON.stringify({ error: "OTP expired or not found. Please request a new one." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Verify OTP hash
+    const providedOtpHash = await hashOtp(otp);
+    if (otpRecord.otp_hash !== providedOtpHash) {
+      await recordVerifyAttempt(supabase, normalizedPhone, false);
+      return new Response(
+        JSON.stringify({ error: "Invalid OTP. Please try again." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // OTP is valid - mark as used
+    await supabase
+      .from('otp_rate_limits')
+      .delete()
+      .eq('id', otpRecord.id);
+
+    // Record successful verification
+    await recordVerifyAttempt(supabase, normalizedPhone, true);
+
     // Format phone for Supabase (requires E.164 format)
     const formattedPhone = phone.startsWith("+") ? phone : `+91${normalizedPhone}`;
 
-    // Check if user exists
-    const { data: existingUsers } = await supabase.auth.admin.listUsers();
-    const existingUser = existingUsers?.users.find(u => u.phone === formattedPhone);
+    // Check if user exists by querying profiles table
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('phone', formattedPhone)
+      .maybeSingle();
 
     let user;
-    let session;
 
-    if (existingUser) {
-      // Sign in existing user - generate session token
-      const { data, error } = await supabase.auth.admin.generateLink({
-        type: "magiclink",
-        email: existingUser.email || `${normalizedPhone}@phone.sweeftcom.app`,
-      });
-
-      if (error) {
-        console.error("Error generating session:", error);
-        // Fallback: create a custom session response
-        return new Response(
-          JSON.stringify({ 
-            success: true, 
-            isNewUser: false,
-            user: { id: existingUser.id, phone: formattedPhone },
-            message: "Verified successfully" 
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      user = existingUser;
+    if (existingProfile) {
+      // Get existing user
+      const { data: userData } = await supabase.auth.admin.getUserById(existingProfile.user_id);
+      user = userData?.user;
     } else {
       // Create new user
       const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
@@ -115,7 +158,7 @@ serve(async (req: Request): Promise<Response> => {
       });
 
       if (createError) {
-        console.error("Error creating user:", createError);
+        console.error("[INTERNAL] Error creating user");
         return new Response(
           JSON.stringify({ error: "Failed to create account" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -125,21 +168,21 @@ serve(async (req: Request): Promise<Response> => {
       user = newUser.user;
     }
 
-    console.log(`User verified: ${formattedPhone}, ID: ${user?.id}`);
+    console.log(`User verified successfully: phone ending in ***${normalizedPhone.slice(-4)}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        isNewUser: !existingUser,
+        isNewUser: !existingProfile,
         user: { id: user?.id, phone: formattedPhone },
         message: "Phone verified successfully"
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
-    console.error("Error verifying OTP:", error);
+    console.error("[INTERNAL] Error in verify-otp");
     return new Response(
-      JSON.stringify({ error: error.message || "Verification failed" }),
+      JSON.stringify({ error: "Verification failed. Please try again." }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
