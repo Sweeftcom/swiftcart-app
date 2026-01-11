@@ -151,6 +151,19 @@ export interface DbDriver {
   updated_at: string;
 }
 
+// Masked driver data returned by get_driver_for_order RPC function
+// This protects sensitive driver information from customers
+export interface DbDriverMasked {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  vehicle_type: string | null;
+  rating: number | null;
+  phone_masked: string | null;
+  current_lat_approx: number | null;
+  current_lng_approx: number | null;
+}
+
 export interface DbNotification {
   id: string;
   user_id: string;

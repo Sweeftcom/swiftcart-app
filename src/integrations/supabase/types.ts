@@ -775,6 +775,19 @@ export type Database = {
     Functions: {
       cancel_order: { Args: { p_order_id: string }; Returns: Json }
       cleanup_expired_otps: { Args: never; Returns: undefined }
+      get_driver_for_order: {
+        Args: { p_order_id: string }
+        Returns: {
+          avatar_url: string
+          current_lat_approx: number
+          current_lng_approx: number
+          id: string
+          name: string
+          phone_masked: string
+          rating: number
+          vehicle_type: string
+        }[]
+      }
       rate_order: {
         Args: { p_feedback?: string; p_order_id: string; p_rating: number }
         Returns: Json
