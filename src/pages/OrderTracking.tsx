@@ -3,12 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Package, Truck, CheckCircle2, Clock, MapPin, Phone, Star } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { DbOrder, DbOrderItem, DbDriver, DbStore, DbAddress } from '@/lib/supabase-types';
+import { DbOrder, DbOrderItem, DbDriverMasked, DbStore, DbAddress } from '@/lib/supabase-types';
 import { BottomNav } from '@/components/layout/BottomNav';
 
 interface OrderWithDetails extends DbOrder {
   order_items: DbOrderItem[];
-  drivers: DbDriver | null;
   stores: DbStore;
   addresses: DbAddress;
 }
@@ -25,27 +24,41 @@ const OrderTracking = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
   const [order, setOrder] = useState<OrderWithDetails | null>(null);
+  const [driver, setDriver] = useState<DbDriverMasked | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchOrder = async () => {
-      const { data, error } = await supabase
+    const fetchOrderAndDriver = async () => {
+      // Fetch order without driver data (drivers table no longer accessible directly)
+      const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select(`
           *,
           order_items(*),
-          drivers(*),
           stores(*),
           addresses(*)
         `)
         .eq('id', orderId)
         .single();
 
-      if (data) setOrder(data as OrderWithDetails);
+      if (orderData) {
+        setOrder(orderData as OrderWithDetails);
+        
+        // Fetch driver data securely via RPC function if order has a driver
+        if (orderData.driver_id && ['confirmed', 'packing', 'out_for_delivery'].includes(orderData.status)) {
+          const { data: driverData } = await supabase
+            .rpc('get_driver_for_order', { p_order_id: orderId });
+          
+          // RPC returns an array, get the first result
+          if (driverData && driverData.length > 0) {
+            setDriver(driverData[0] as DbDriverMasked);
+          }
+        }
+      }
       setIsLoading(false);
     };
 
-    if (orderId) fetchOrder();
+    if (orderId) fetchOrderAndDriver();
 
     // Subscribe to order updates
     const channel = supabase
@@ -55,8 +68,18 @@ const OrderTracking = () => {
         schema: 'public',
         table: 'orders',
         filter: `id=eq.${orderId}`,
-      }, (payload) => {
+      }, async (payload) => {
         setOrder(prev => prev ? { ...prev, ...payload.new } : null);
+        
+        // Refresh driver data if status changed to out_for_delivery
+        if (payload.new && ['confirmed', 'packing', 'out_for_delivery'].includes((payload.new as any).status)) {
+          const { data: driverData } = await supabase
+            .rpc('get_driver_for_order', { p_order_id: orderId });
+          
+          if (driverData && driverData.length > 0) {
+            setDriver(driverData[0] as DbDriverMasked);
+          }
+        }
       })
       .subscribe();
 
@@ -179,8 +202,8 @@ const OrderTracking = () => {
           </div>
         </div>
 
-        {/* Driver Info */}
-        {order.drivers && order.status === 'out_for_delivery' && (
+        {/* Driver Info - Using masked data from RPC */}
+        {driver && order.status === 'out_for_delivery' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -189,27 +212,34 @@ const OrderTracking = () => {
             <h3 className="font-semibold text-foreground mb-3">Delivery Partner</h3>
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center overflow-hidden">
-                {order.drivers.avatar_url ? (
-                  <img src={order.drivers.avatar_url} alt="" className="w-full h-full object-cover" />
+                {driver.avatar_url ? (
+                  <img src={driver.avatar_url} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-2xl">🛵</span>
                 )}
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-foreground">{order.drivers.name}</p>
+                <p className="font-semibold text-foreground">{driver.name}</p>
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Star className="w-4 h-4 fill-primary text-primary" />
-                  <span>{order.drivers.rating || 4.5}</span>
-                  <span>• {order.drivers.vehicle_type}</span>
+                  <span>{driver.rating || 4.5}</span>
+                  <span>• {driver.vehicle_type}</span>
                 </div>
+                {/* Display masked phone number instead of actual phone */}
+                {driver.phone_masked && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Contact via app • {driver.phone_masked}
+                  </p>
+                )}
               </div>
-              <a
-                href={`tel:${order.drivers.phone}`}
-                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center"
-              >
-                <Phone className="w-5 h-5 text-primary-foreground" />
-              </a>
+              {/* Remove direct call button - customers should contact through platform */}
+              <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
+                <Phone className="w-5 h-5 text-muted-foreground" />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              For assistance, please use the Help section
+            </p>
           </motion.div>
         )}
 
