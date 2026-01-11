@@ -306,6 +306,33 @@ export type Database = {
         }
         Relationships: []
       }
+      email_otp_rate_limits: {
+        Row: {
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          ip_address: string
+          otp_hash: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          ip_address: string
+          otp_hash: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          ip_address?: string
+          otp_hash?: string
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           created_at: string
@@ -774,6 +801,7 @@ export type Database = {
     }
     Functions: {
       cancel_order: { Args: { p_order_id: string }; Returns: Json }
+      cleanup_expired_email_otps: { Args: never; Returns: undefined }
       cleanup_expired_otps: { Args: never; Returns: undefined }
       get_driver_for_order: {
         Args: { p_order_id: string }

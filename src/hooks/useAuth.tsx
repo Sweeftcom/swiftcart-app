@@ -8,9 +8,8 @@ interface AuthContextType {
   session: Session | null;
   profile: DbProfile | null;
   isLoading: boolean;
-  signInWithOtp: (email: string) => Promise<{ error: Error | null; isExistingUser?: boolean }>;
-  verifyOtp: (email: string, token: string) => Promise<{ error: Error | null; isNewUser?: boolean }>;
-  signInWithGoogle: () => Promise<{ error: Error | null }>;
+  sendEmailOtp: (email: string) => Promise<{ error: Error | null; isExistingUser?: boolean }>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<{ error: Error | null; isNewUser?: boolean }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<DbProfile>) => Promise<{ error: Error | null }>;
 }
@@ -71,25 +70,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data } = await supabase
       .from('profiles')
       .select('email')
-      .eq('email', email)
+      .eq('email', email.toLowerCase().trim())
       .maybeSingle();
     
     return !!data;
   };
 
-  const signInWithOtp = async (email: string): Promise<{ error: Error | null; isExistingUser?: boolean }> => {
+  const sendEmailOtp = async (email: string): Promise<{ error: Error | null; isExistingUser?: boolean }> => {
     try {
       const isExistingUser = await checkExistingUser(email);
       
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: true,
-        },
+      const response = await supabase.functions.invoke('send-email-otp', {
+        body: { email: email.toLowerCase().trim() },
       });
 
-      if (error) {
-        return { error: new Error(error.message) };
+      if (response.error) {
+        return { error: new Error(response.error.message || 'Failed to send OTP') };
+      }
+
+      if (response.data?.error) {
+        return { error: new Error(response.data.error) };
       }
 
       return { error: null, isExistingUser };
@@ -98,52 +98,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const verifyOtp = async (email: string, token: string): Promise<{ error: Error | null; isNewUser?: boolean }> => {
+  const verifyEmailOtp = async (email: string, otp: string): Promise<{ error: Error | null; isNewUser?: boolean }> => {
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token,
-        type: 'email',
+      const response = await supabase.functions.invoke('verify-email-otp', {
+        body: { email: email.toLowerCase().trim(), otp },
       });
 
-      if (error) {
-        return { error: new Error(error.message) };
+      if (response.error) {
+        return { error: new Error(response.error.message || 'Verification failed') };
       }
 
-      // Check if user is new by looking at profile
-      let isNewUser = false;
-      if (data.user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('user_id', data.user.id)
-          .maybeSingle();
-        
-        isNewUser = !profileData?.name;
+      if (response.data?.error) {
+        return { error: new Error(response.data.error) };
       }
 
-      return { error: null, isNewUser };
+      // If verification successful, use the token_hash to complete auth
+      if (response.data?.success && response.data?.verification?.token_hash) {
+        const { data: authData, error: authError } = await supabase.auth.verifyOtp({
+          token_hash: response.data.verification.token_hash,
+          type: 'magiclink',
+        });
+
+        if (authError) {
+          return { error: new Error(authError.message) };
+        }
+      }
+
+      return { error: null, isNewUser: response.data?.isNewUser };
     } catch (err: any) {
       return { error: new Error(err.message || 'Verification failed') };
-    }
-  };
-
-  const signInWithGoogle = async (): Promise<{ error: Error | null }> => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/location`,
-        },
-      });
-
-      if (error) {
-        return { error: new Error(error.message) };
-      }
-
-      return { error: null };
-    } catch (err: any) {
-      return { error: new Error(err.message || 'Google sign-in failed') };
     }
   };
 
@@ -176,9 +159,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         session,
         profile,
         isLoading,
-        signInWithOtp,
-        verifyOtp,
-        signInWithGoogle,
+        sendEmailOtp,
+        verifyEmailOtp,
         signOut,
         updateProfile,
       }}
