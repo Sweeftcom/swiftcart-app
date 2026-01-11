@@ -528,6 +528,54 @@ export type Database = {
           },
         ]
       }
+      otp_rate_limits: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          ip_address: string
+          otp_hash: string
+          phone: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          ip_address: string
+          otp_hash: string
+          phone: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          ip_address?: string
+          otp_hash?: string
+          phone?: string
+        }
+        Relationships: []
+      }
+      otp_verify_attempts: {
+        Row: {
+          created_at: string
+          id: string
+          phone: string
+          success: boolean
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          phone: string
+          success?: boolean
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          phone?: string
+          success?: boolean
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           best_before_days: number | null
@@ -725,7 +773,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      cancel_order: { Args: { p_order_id: string }; Returns: Json }
+      cleanup_expired_otps: { Args: never; Returns: undefined }
+      rate_order: {
+        Args: { p_feedback?: string; p_order_id: string; p_rating: number }
+        Returns: Json
+      }
+      user_has_order_with_driver: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
