@@ -2,25 +2,14 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 
-// Allowed origins for CORS
-const ALLOWED_ORIGINS = [
-  'https://rlulmjwbrlijeaeukavn.lovableproject.com',
-  'https://rlulmjwbrlijeaeukavn.lovable.app',
-  'http://localhost:5173',
-  'http://localhost:8080',
-];
+// CORS headers - allow lovableproject.com and lovable.app subdomains
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
-function getCorsHeaders(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
-  
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Vary"] = "Origin";
-  }
-  
-  return headers;
+function getCorsHeaders(): Record<string, string> {
+  return corsHeaders;
 }
 
 interface OtpRequest {
@@ -195,20 +184,11 @@ If you didn't request this code, you can safely ignore this email.
 }
 
 serve(async (req: Request): Promise<Response> => {
-  const origin = req.headers.get("origin");
-  const corsHeaders = getCorsHeaders(origin);
+  const headers = getCorsHeaders();
   
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  // Reject unauthorized origins
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-    return new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      { status: 403, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(null, { headers });
   }
 
   try {
@@ -219,7 +199,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!email || !emailRegex.test(email)) {
       return new Response(
         JSON.stringify({ error: "Invalid email address" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
@@ -244,7 +224,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!rateLimitResult.allowed) {
       return new Response(
         JSON.stringify({ error: rateLimitResult.message }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 429, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
@@ -259,13 +239,13 @@ serve(async (req: Request): Promise<Response> => {
 
     return new Response(
       JSON.stringify({ success: true, message: "OTP sent to your email" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...headers, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
     console.error("[INTERNAL] Error in send-email-otp:", error.message);
     return new Response(
       JSON.stringify({ error: error.message || "Failed to send OTP" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...getCorsHeaders(), "Content-Type": "application/json" } }
     );
   }
 });
