@@ -1,25 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-// Allowed origins for CORS
-const ALLOWED_ORIGINS = [
-  'https://rlulmjwbrlijeaeukavn.lovableproject.com',
-  'https://rlulmjwbrlijeaeukavn.lovable.app',
-  'http://localhost:5173',
-  'http://localhost:8080',
-];
+// CORS headers - allow all origins for edge function access
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
-function getCorsHeaders(origin: string | null): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
-  
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Vary"] = "Origin";
-  }
-  
-  return headers;
+function getCorsHeaders(): Record<string, string> {
+  return corsHeaders;
 }
 
 interface VerifyRequest {
@@ -148,19 +137,11 @@ async function createOrGetUser(supabaseAdmin: any, email: string): Promise<{ use
 
 serve(async (req: Request): Promise<Response> => {
   const origin = req.headers.get("origin");
-  const corsHeaders = getCorsHeaders(origin);
+  const headers = getCorsHeaders();
   
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  // Reject unauthorized origins
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-    return new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      { status: 403, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(null, { headers });
   }
 
   try {
@@ -171,14 +152,14 @@ serve(async (req: Request): Promise<Response> => {
     if (!email || !emailRegex.test(email)) {
       return new Response(
         JSON.stringify({ error: "Invalid email address" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
     if (!otp || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
       return new Response(
         JSON.stringify({ error: "Invalid OTP format" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
@@ -198,7 +179,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!rateLimitResult.allowed) {
       return new Response(
         JSON.stringify({ error: rateLimitResult.message }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 429, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
@@ -208,7 +189,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!verifyResult.valid) {
       return new Response(
         JSON.stringify({ error: "Invalid or expired OTP" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
@@ -220,7 +201,7 @@ serve(async (req: Request): Promise<Response> => {
       type: 'magiclink',
       email: normalizedEmail,
       options: {
-        redirectTo: `${origin}/location`,
+        redirectTo: origin ? `${origin}/location` : undefined,
       },
     });
     
@@ -228,7 +209,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error("[INTERNAL] Magic link error:", linkError);
       return new Response(
         JSON.stringify({ error: "Failed to create session" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
       );
     }
 
@@ -247,13 +228,13 @@ serve(async (req: Request): Promise<Response> => {
           token_hash: tokenHash,
         }
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...headers, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
     console.error("[INTERNAL] Error in verify-email-otp:", error.message);
     return new Response(
       JSON.stringify({ error: error.message || "Verification failed" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...getCorsHeaders(), "Content-Type": "application/json" } }
     );
   }
 });
