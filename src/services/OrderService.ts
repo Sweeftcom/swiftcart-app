@@ -1,17 +1,9 @@
 import { supabase } from '../lib/react-native/supabase-client';
 import { Order } from '../types';
 
-// Detect environment for configuration
-const isVite = typeof import.meta !== 'undefined' && import.meta.env;
-const getEnvVar = (name: string) => {
-  if (isVite) return import.meta.env[name];
-  return process.env[name];
-};
-
 /**
  * Sweeftcom Order Service
  * Handles the high-end handshake logic between Customer, Vendor, and Rider.
- * Optimized for React Native with Realtime subscriptions.
  */
 export class OrderService {
   /**
@@ -22,13 +14,7 @@ export class OrderService {
       p_order_data: orderData
     });
 
-    if (error) {
-      console.error('Order placement failed:', error.message);
-      throw error;
-    }
-
-    // In a production environment, this would trigger a push notification
-    // via a Supabase Edge Function or an external service like OneSignal.
+    if (error) throw error;
     return data;
   }
 
@@ -52,10 +38,26 @@ export class OrderService {
     });
     if (error) throw error;
 
-    // Invoke Edge Function for Rider Matching (Blinkit logic)
     await supabase.functions.invoke('process-order', {
       body: { orderId }
     });
+
+    return data;
+  }
+
+  /**
+   * Secure Handshake: Verify Delivery OTP at the doorstep
+   */
+  static async verifyDeliveryOtp(orderId: string, otp: string) {
+    const { data, error } = await supabase.rpc('complete_delivery_with_otp', {
+      p_order_id: orderId,
+      p_otp: otp
+    });
+
+    if (error) {
+      console.error('OTP Verification Failed:', error.message);
+      throw error;
+    }
 
     return data;
   }
