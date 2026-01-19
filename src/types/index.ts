@@ -1,12 +1,17 @@
-// Quick Commerce Data Models
+// Enhanced Quick Commerce Data Models
 
-export interface User {
+export type UserRole = 'customer' | 'vendor' | 'driver' | 'admin';
+
+export interface Profile {
   id: string;
+  userId: string;
   phone: string;
   name?: string;
   email?: string;
-  avatar?: string;
-  createdAt: Date;
+  avatarUrl?: string;
+  role: UserRole;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Address {
@@ -17,37 +22,41 @@ export interface Address {
   flatNumber: string;
   building: string;
   street: string;
+  area: string;
   landmark?: string;
   city: string;
   pincode: string;
-  coordinates: {
-    lat: number;
-    lng: number;
-  };
+  lat?: number;
+  lng?: number;
   deliveryInstructions?: string;
   isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Store {
   id: string;
   name: string;
   type: 'dark_store' | 'partner_store';
-  coordinates: {
-    lat: number;
-    lng: number;
-  };
-  estimatedDeliveryMinutes: number;
+  address: string;
+  city: string;
+  lat: number;
+  lng: number;
+  baseHandlingMinutes: number;
   isOpen: boolean;
+  opensAt: string;
+  closesAt: string;
   rating: number;
   totalOrders: number;
+  createdAt: string;
 }
 
 export interface Category {
   id: string;
   name: string;
   slug: string;
-  icon: string;
-  image: string;
+  icon?: string;
+  image?: string;
   parentId?: string;
   sortOrder: number;
   isActive: boolean;
@@ -57,64 +66,32 @@ export interface Product {
   id: string;
   name: string;
   slug: string;
-  description: string;
+  description?: string;
   categoryId: string;
-  brand: string;
+  brand?: string;
   images: string[];
   price: number;
   mrp: number;
-  discountPercent: number;
   unit: string;
-  packSize: string;
+  packSize?: string;
+  weight?: string;
   rating: number;
   reviewCount: number;
-  tags: string[];
   isVeg: boolean;
   isAvailable: boolean;
-  maxQuantity: number;
+  stockQuantity: number;
+  maxQuantityPerOrder: number;
+  createdAt: string;
 }
 
-export interface InventorySummary {
+export interface StoreInventory {
+  id: string;
+  storeId: string;
   productId: string;
-  storeId: string;
   quantity: number;
+  lowStockThreshold: number;
   isAvailable: boolean;
-  lastUpdated: Date;
-}
-
-export interface CartItem {
-  id: string;
-  product: Product;
-  quantity: number;
-  reservationExpiry?: Date;
-  isReserved: boolean;
-}
-
-export interface Cart {
-  id: string;
-  userId: string;
-  storeId: string;
-  items: CartItem[];
-  subtotal: number;
-  deliveryFee: number;
-  surgeFee: number;
-  discount: number;
-  total: number;
-  appliedCoupon?: Coupon;
-  estimatedDeliveryMinutes: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface Coupon {
-  id: string;
-  code: string;
-  description: string;
-  discountType: 'percentage' | 'flat';
-  discountValue: number;
-  minOrderValue: number;
-  maxDiscount?: number;
-  validUntil: Date;
+  updatedAt: string;
 }
 
 export type OrderStatus = 
@@ -130,83 +107,85 @@ export interface Order {
   orderNumber: string;
   userId: string;
   storeId: string;
-  store: Store;
-  items: CartItem[];
+  driverId?: string;
+  addressId: string;
   status: OrderStatus;
-  statusHistory: {
-    status: OrderStatus;
-    timestamp: Date;
-    note?: string;
-  }[];
-  deliveryAddress: Address;
   subtotal: number;
   deliveryFee: number;
   surgeFee: number;
   discount: number;
+  tax: number;
   total: number;
-  paymentMethod: PaymentMethod;
+  paymentMethod: 'upi' | 'card' | 'netbanking' | 'cod';
   paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded';
-  rider?: RiderSummary;
-  estimatedDeliveryTime: Date;
-  actualDeliveryTime?: Date;
+  estimatedDeliveryMinutes: number;
+  estimatedDeliveryTime: string;
+  actualDeliveryTime?: string;
   rating?: number;
   feedback?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface RiderSummary {
+export interface OrderAssignment {
   id: string;
+  orderId: string;
+  driverId: string;
+  status: 'offered' | 'accepted' | 'rejected' | 'timed_out';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Driver {
+  id: string;
+  userId?: string;
   name: string;
-  phone: string; // masked
-  avatar?: string;
+  phone: string;
+  avatarUrl?: string;
+  vehicleType: string;
+  vehicleNumber?: string;
+  isAvailable: boolean;
+  isVerified: boolean;
+  status: 'offline' | 'online' | 'busy';
+  currentOrderId?: string;
+  currentLat?: number;
+  currentLng?: number;
   rating: number;
-  coordinates?: {
-    lat: number;
-    lng: number;
-  };
+  totalDeliveries: number;
+  createdAt: string;
 }
 
-export interface PaymentMethod {
-  id: string;
-  type: 'upi' | 'card' | 'wallet' | 'cod';
-  name: string;
-  icon: string;
-  details?: string;
-  isDefault: boolean;
-}
-
-export interface Subscription {
+export interface Payout {
   id: string;
   userId: string;
-  planName: string;
-  planType: 'monthly' | 'quarterly' | 'yearly';
-  benefits: string[];
-  price: number;
-  startDate: Date;
-  endDate: Date;
-  isActive: boolean;
-  autoRenew: boolean;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  type: 'vendor_payout' | 'driver_earnings';
+  referenceId?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  createdAt: string;
 }
 
-export interface Notification {
+export interface Review {
   id: string;
   userId: string;
-  type: 'order' | 'offer' | 'system';
-  title: string;
-  message: string;
-  deepLink?: string;
-  isRead: boolean;
-  createdAt: Date;
+  rating: number;
+  comment?: string;
+  createdAt: string;
 }
 
-export interface Banner {
-  id: string;
-  title: string;
-  subtitle?: string;
-  image: string;
-  backgroundColor: string;
-  deepLink?: string;
-  sortOrder: number;
-  isActive: boolean;
+export interface ProductReview extends Review {
+  productId: string;
+  images: string[];
+}
+
+export interface StoreReview extends Review {
+  storeId: string;
+}
+
+export interface DriverReview extends Review {
+  driverId: string;
+  orderId: string;
 }
