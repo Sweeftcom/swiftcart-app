@@ -11,13 +11,13 @@ interface TrackingMapProps {
 
 /**
  * TrackingMap
- * High-performance live tracking with smooth rider marker animation.
- * Uses AnimatedRegion for professional, non-jumping movement.
+ * High-performance live tracking with smooth rider marker animation and auto-zoom.
+ * Optimized for React Native using AnimatedRegion and fitToCoordinates.
  */
 export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, customerLocation }) => {
+  const mapRef = useRef<MapView>(null);
   const [riderLocation, setRiderLocation] = useState(customerLocation);
 
-  // Use AnimatedRegion for professional marker animation in react-native-maps
   const riderAnimatedCoordinate = useRef(new AnimatedRegion({
     ...customerLocation,
     latitudeDelta: 0,
@@ -25,7 +25,10 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, cust
   })).current;
 
   useEffect(() => {
-    // 1. Subscribe to real-time location updates
+    // 1. Initial fit to show both points
+    fitBounds();
+
+    // 2. Subscribe to real-time location updates
     const channel = supabase
       .channel(`rider-location-${riderId}`)
       .on(
@@ -41,6 +44,9 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, cust
           if (current_lat && current_lng) {
             animateMarker(current_lat, current_lng);
             setRiderLocation({ latitude: current_lat, longitude: current_lng });
+
+            // Periodically fit bounds as rider moves
+            fitBounds();
           }
         }
       )
@@ -51,8 +57,19 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, cust
     };
   }, [riderId]);
 
+  const fitBounds = () => {
+    if (mapRef.current) {
+      mapRef.current.fitToCoordinates(
+        [riderLocation, customerLocation],
+        {
+          edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+          animated: true,
+        }
+      );
+    }
+  };
+
   const animateMarker = (latitude: number, longitude: number) => {
-    // Professional interpolation over 5 seconds (matching driver tracking interval)
     if (Platform.OS === 'android') {
       if (riderAnimatedCoordinate) {
         (riderAnimatedCoordinate as any).timing({
@@ -75,6 +92,7 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, cust
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         customMapStyle={darkMapStyle}
