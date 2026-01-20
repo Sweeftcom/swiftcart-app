@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import Splash from "./pages/Splash";
 import Auth from "./pages/Auth";
@@ -20,6 +20,12 @@ import Checkout from "./pages/Checkout";
 import OrderTracking from "./pages/OrderTracking";
 import NotFound from "./pages/NotFound";
 
+// Admin and Operational Hubs
+import { OrderHeartbeat } from "./admin/OrderHeartbeat";
+import { Heatmap } from "./admin/Heatmap";
+import { MarketingDashboard } from "./admin/MarketingDashboard";
+import { ZoneController } from "./admin/ZoneController";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -28,7 +34,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <HashRouter>
           <Routes>
             <Route path="/" element={<Splash />} />
             <Route path="/auth" element={<Auth />} />
@@ -44,9 +50,16 @@ const App = () => (
             <Route path="/category/:slug" element={<CategoryProducts />} />
             <Route path="/products" element={<Products />} />
             <Route path="/product/:slug" element={<ProductDetail />} />
+
+            {/* Admin & Operations Routes */}
+            <Route path="/admin/heartbeat" element={<OrderHeartbeat />} />
+            <Route path="/admin/heatmap" element={<Heatmap />} />
+            <Route path="/admin/marketing" element={<MarketingDashboard />} />
+            <Route path="/admin/zones" element={<ZoneController />} />
+
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
