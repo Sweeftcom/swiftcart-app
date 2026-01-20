@@ -1,6 +1,6 @@
 -- Unify Schema and Permissions for 4-App Ecosystem
 
--- 1. Ensure Drivers table exists in master project
+-- 1. Ensure Drivers table exists
 CREATE TABLE IF NOT EXISTS public.drivers (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id),
@@ -33,8 +33,16 @@ CREATE TABLE IF NOT EXISTS public.vendors (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- 3. RLS Permissions: Enable INSERT for registration (Anon/Authenticated)
+-- 3. Update Profiles for manual address
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_address TEXT;
+
+-- 4. RLS Permissions: Enable INSERT for registration (Anon/Authenticated)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Remove existing policies to avoid conflicts during unification if necessary
+-- DROP POLICY IF EXISTS "Enable insert for all during registration" ON public.profiles;
 CREATE POLICY "Enable insert for all during registration" ON public.profiles FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable update for own profile" ON public.profiles FOR UPDATE USING (auth.uid() = user_id);
 
@@ -46,12 +54,3 @@ CREATE POLICY "Enable update for own record" ON public.drivers FOR UPDATE USING 
 ALTER TABLE public.vendors ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Enable insert for vendor registration" ON public.vendors FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable select for vendor view" ON public.vendors FOR SELECT USING (auth.uid() = user_id);
-
--- 4. Storage Bucket for Documents
--- Note: Buckets are usually created via UI or API, but we ensure policies exist
--- In Supabase, you'd create 'documents' bucket manually or via scripts.
-
--- 5. Location Storage on Profiles
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_address TEXT;

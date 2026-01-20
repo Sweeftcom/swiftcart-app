@@ -23,13 +23,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Defer profile fetch with setTimeout to avoid deadlock
         if (session?.user) {
           setTimeout(() => {
             fetchProfile(session.user.id);
@@ -40,7 +38,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
-    // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -66,7 +63,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const checkExistingUser = async (email: string): Promise<boolean> => {
-    // Check if user exists in profiles table
     const { data } = await supabase
       .from('profiles')
       .select('email')
@@ -80,16 +76,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const isExistingUser = await checkExistingUser(email);
       
-      const response = await supabase.functions.invoke('send-email-otp', {
-        body: { email: email.toLowerCase().trim() },
+      // Using standard signInWithOtp for 6-digit Email OTP
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.toLowerCase().trim(),
+        options: {
+          shouldCreateUser: true,
+        }
       });
 
-      if (response.error) {
-        return { error: new Error(response.error.message || 'Failed to send OTP') };
-      }
-
-      if (response.data?.error) {
-        return { error: new Error(response.data.error) };
+      if (error) {
+        return { error: new Error(error.message || 'Failed to send OTP') };
       }
 
       return { error: null, isExistingUser };
@@ -100,31 +96,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const verifyEmailOtp = async (email: string, otp: string): Promise<{ error: Error | null; isNewUser?: boolean }> => {
     try {
-      const response = await supabase.functions.invoke('verify-email-otp', {
-        body: { email: email.toLowerCase().trim(), otp },
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.toLowerCase().trim(),
+        token: otp,
+        type: 'email',
       });
 
-      if (response.error) {
-        return { error: new Error(response.error.message || 'Verification failed') };
+      if (error) {
+        return { error: new Error(error.message || 'Verification failed') };
       }
 
-      if (response.data?.error) {
-        return { error: new Error(response.data.error) };
-      }
-
-      // If verification successful, use the token_hash to complete auth
-      if (response.data?.success && response.data?.verification?.token_hash) {
-        const { data: authData, error: authError } = await supabase.auth.verifyOtp({
-          token_hash: response.data.verification.token_hash,
-          type: 'magiclink',
-        });
-
-        if (authError) {
-          return { error: new Error(authError.message) };
-        }
-      }
-
-      return { error: null, isNewUser: response.data?.isNewUser };
+      return { error: null, isNewUser: !profile?.name };
     } catch (err: any) {
       return { error: new Error(err.message || 'Verification failed') };
     }

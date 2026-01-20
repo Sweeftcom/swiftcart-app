@@ -19,7 +19,7 @@ export class ProfileService {
   }
 
   /**
-   * Save pinned location from Google Places
+   * Save pinned location or manual address
    */
   static async saveLocation(userId: string, lat: number, lng: number, address: string) {
     const { error } = await supabase
@@ -28,6 +28,7 @@ export class ProfileService {
         last_lat: lat,
         last_lng: lng,
         full_address: address,
+        manual_address_override: address,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', userId);
@@ -41,7 +42,7 @@ export class ProfileService {
    */
   static async uploadDocument(userId: string, file: any, docType: 'aadhar' | 'pan') {
     const fileName = `${userId}/${docType}_${Date.now()}`;
-    const { data, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('documents')
       .upload(fileName, file);
 
