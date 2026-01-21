@@ -22,12 +22,15 @@ const Location = () => {
 
   useEffect(() => {
     const fetchStores = async () => {
+      console.log('[DEBUG] Fetching stores...');
       const { data, error } = await supabase
         .from('stores')
         .select('*')
         .eq('is_open', true);
 
-      if (!error && data) {
+      if (error) console.error('[DEBUG] Store fetch error:', error);
+      if (data) {
+        console.log('[DEBUG] Stores found:', data.length);
         setStores(data as DbStore[]);
       }
     };
@@ -39,14 +42,17 @@ const Location = () => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.length > 2) {
         setIsSearching(true);
+        console.log('[DEBUG] Searching Nominatim for:', searchQuery);
         try {
           const response = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery + ', Aurangabad')}&limit=5`
           );
           const data = await response.json();
+          console.log('[DEBUG] Nominatim results:', data.length);
           setSearchResults(data);
         } catch (error) {
-          console.error('Nominatim error:', error);
+          console.error('[DEBUG] Nominatim error:', error);
+          toast.error('Search failed. Using manual fallback.');
         } finally {
           setIsSearching(false);
         }
@@ -73,31 +79,48 @@ const Location = () => {
   };
 
   const handleSelectLocation = async (name: string, lat: number, lng: number) => {
-    const nearest = findNearestStore(lat, lng);
-    
-    setSelectedLocation({ name, lat, lng, type: 'area' });
-    if (nearest) setNearestStore(nearest);
+    console.log('[DEBUG] handleSelectLocation triggered:', { name, lat, lng });
+    try {
+      const nearest = findNearestStore(lat, lng);
+      console.log('[DEBUG] Nearest store found:', nearest?.name);
 
-    if (user) {
-      // Address Persistence
-      await ProfileService.saveLocation(user.id, lat, lng, name);
+      // Update global store
+      setSelectedLocation({ name, lat, lng, type: 'area' });
+      if (nearest) setNearestStore(nearest);
+      setHasCompletedLocationSelection(true);
+
+      // Address Persistence to Supabase
+      if (user) {
+        console.log('[DEBUG] Persisting location to profile for user:', user.id);
+        await ProfileService.saveLocation(user.id, lat, lng, name).catch(err => {
+            console.warn('[DEBUG] Profile save error (ignoring for navigation):', err);
+        });
+      }
+
+      console.log('[DEBUG] Navigating to /home...');
+      toast.success(`📍 Location set to ${name}`);
+
+      // Force navigation
+      navigate('/home');
+
+    } catch (err) {
+      console.error('[DEBUG] unhandled error in handleSelectLocation:', err);
+      toast.error('Failed to set location. Please try again.');
     }
-
-    setHasCompletedLocationSelection(true);
-    toast.success(`📍 Location set to ${name}`);
-    navigate('/home', { replace: true });
   };
 
   const handleManualSave = async () => {
+    console.log('[DEBUG] handleManualSave triggered:', manualAddress);
     if (!manualAddress.trim()) {
       toast.error('Please enter an address');
       return;
     }
-    // Default to center of Aurangabad if exact coordinates unknown
+    // Default to center of Aurangabad (Nirala Bazar area) if exact coordinates unknown
     await handleSelectLocation(manualAddress, 19.8762, 75.3433);
   };
 
   const handleDetectLocation = () => {
+    console.log('[DEBUG] handleDetectLocation triggered');
     if (!navigator.geolocation) {
       toast.error('Geolocation not supported');
       return;
@@ -108,19 +131,22 @@ const Location = () => {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
+        console.log('[DEBUG] GPS Position detected:', { latitude, longitude });
         try {
           const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
           const data = await res.json();
           const address = data.display_name || `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`;
           await handleSelectLocation(address, latitude, longitude);
         } catch (err) {
-          await handleSelectLocation('Current Location', latitude, longitude);
+          console.warn('[DEBUG] Reverse geocode failed, using lat/lng string');
+          await handleSelectLocation(`Location (${latitude.toFixed(2)}, ${longitude.toFixed(2)})`, latitude, longitude);
         } finally {
           setIsDetectingLocation(false);
         }
       },
       (error) => {
-        toast.error('Location permission denied or timed out');
+        console.error('[DEBUG] Geolocation error:', error);
+        toast.error('Permission denied or GPS signal lost. Please search manually.');
         setIsDetectingLocation(false);
       },
       { enableHighAccuracy: true, timeout: 5000 }
@@ -151,7 +177,10 @@ const Location = () => {
                  onChange={(e) => setManualAddress(e.target.value)}
                  className="bg-transparent outline-none flex-1 font-medium"
                />
-               <button onClick={handleManualSave} className="bg-primary text-primary-foreground px-4 py-1.5 rounded-lg font-bold text-xs">
+               <button
+                 onClick={handleManualSave}
+                 className="bg-primary text-primary-foreground px-4 py-1.5 rounded-lg font-bold text-xs"
+               >
                  SAVE
                </button>
              </div>
