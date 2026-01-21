@@ -1,7 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Animated, Platform } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE, AnimatedRegion } from 'react-native-maps';
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
+import L from 'leaflet';
 import { supabase } from '../lib/react-native/supabase-client';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for Leaflet default icon issues in React
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41]
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
 
 interface TrackingMapProps {
   orderId: string;
@@ -10,25 +24,30 @@ interface TrackingMapProps {
 }
 
 /**
+ * AutoFitBounds Component
+ * Automatically fits the map bounds to show all markers.
+ */
+const AutoFitBounds = ({ points }: { points: [number, number][] }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (points.length > 0) {
+      const bounds = L.latLngBounds(points);
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }, [points, map]);
+  return null;
+};
+
+/**
  * TrackingMap
- * High-performance live tracking with smooth rider marker animation and auto-zoom.
- * Optimized for React Native using AnimatedRegion and fitToCoordinates.
+ * High-performance live tracking using Leaflet and OpenStreetMap.
+ * Optimized for local testing without Google Maps billing.
  */
 export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, customerLocation }) => {
-  const mapRef = useRef<MapView>(null);
-  const [riderLocation, setRiderLocation] = useState(customerLocation);
-
-  const riderAnimatedCoordinate = useRef(new AnimatedRegion({
-    ...customerLocation,
-    latitudeDelta: 0,
-    longitudeDelta: 0,
-  })).current;
+  const [riderLocation, setRiderLocation] = useState<[number, number] | null>(null);
 
   useEffect(() => {
-    // 1. Initial fit to show both points
-    fitBounds();
-
-    // 2. Subscribe to real-time location updates
+    // Subscribe to real-time location updates from Supabase
     const channel = supabase
       .channel(`rider-location-${riderId}`)
       .on(
@@ -42,11 +61,7 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, cust
         (payload) => {
           const { current_lat, current_lng } = payload.new;
           if (current_lat && current_lng) {
-            animateMarker(current_lat, current_lng);
-            setRiderLocation({ latitude: current_lat, longitude: current_lng });
-
-            // Periodically fit bounds as rider moves
-            fitBounds();
+            setRiderLocation([current_lat, current_lng]);
           }
         }
       )
@@ -57,92 +72,48 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({ orderId, riderId, cust
     };
   }, [riderId]);
 
-  const fitBounds = () => {
-    if (mapRef.current) {
-      mapRef.current.fitToCoordinates(
-        [riderLocation, customerLocation],
-        {
-          edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
-          animated: true,
-        }
-      );
-    }
-  };
-
-  const animateMarker = (latitude: number, longitude: number) => {
-    if (Platform.OS === 'android') {
-      if (riderAnimatedCoordinate) {
-        (riderAnimatedCoordinate as any).timing({
-          latitude,
-          longitude,
-          duration: 5000,
-          useNativeDriver: false,
-        }).start();
-      }
-    } else {
-      riderAnimatedCoordinate.timing({
-        latitude,
-        longitude,
-        duration: 5000,
-        useNativeDriver: false,
-      }).start();
-    }
-  };
+  const customerPos: [number, number] = [customerLocation.latitude, customerLocation.longitude];
+  const points: [number, number][] = [customerPos];
+  if (riderLocation) points.push(riderLocation);
 
   return (
-    <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
-        style={styles.map}
-        customMapStyle={darkMapStyle}
-        initialRegion={{
-          ...customerLocation,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        }}
+    <div className="w-full h-full min-h-[400px] rounded-3xl overflow-hidden border border-[#333]">
+      <MapContainer
+        center={customerPos}
+        zoom={13}
+        style={{ height: '100%', width: '100%' }}
       >
-        <Marker coordinate={customerLocation} title="You" pinColor="blue" />
-
-        <Marker.Animated
-          coordinate={riderAnimatedCoordinate as any}
-          title="Sweeftcom Rider"
-        >
-          <View style={styles.riderMarker} />
-        </Marker.Animated>
-
-        <Polyline
-          coordinates={[riderLocation, customerLocation]}
-          strokeColor="#E5F942"
-          strokeWidth={3}
-          lineDashPattern={[5, 5]}
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
-      </MapView>
-    </View>
+
+        <Marker position={customerPos}>
+          {/* Custom label or popup for Customer */}
+        </Marker>
+
+        {riderLocation && (
+          <Marker
+            position={riderLocation}
+            icon={L.divIcon({
+              className: 'custom-rider-icon',
+              html: '<div style="background-color: #E5F942; width: 24px; height: 24px; borderRadius: 50%; border: 3px solid #000; box-shadow: 0 0 10px #E5F942;"></div>',
+              iconSize: [24, 24]
+            })}
+          />
+        )}
+
+        {riderLocation && (
+          <Polyline
+            positions={[riderLocation, customerPos]}
+            color="#E5F942"
+            weight={3}
+            dashArray="5, 10"
+          />
+        )}
+
+        <AutoFitBounds points={points} />
+      </MapContainer>
+    </div>
   );
 };
-
-const styles = StyleSheet.create({
-  container: { ...StyleSheet.absoluteFillObject },
-  map: { ...StyleSheet.absoluteFillObject },
-  riderMarker: {
-    width: 24,
-    height: 24,
-    backgroundColor: '#E5F942',
-    borderRadius: 12,
-    borderWidth: 3,
-    borderColor: '#000',
-    shadowColor: '#E5F942',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-  },
-});
-
-const darkMapStyle = [
-  { "elementType": "geometry", "stylers": [{ "color": "#1a1a1a" }] },
-  { "elementType": "labels.text.fill", "stylers": [{ "color": "#746855" }] },
-  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#242f3e" }] },
-  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#38414e" }] },
-  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#17263c" }] }
-];
