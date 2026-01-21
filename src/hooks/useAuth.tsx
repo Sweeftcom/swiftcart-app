@@ -8,8 +8,8 @@ interface AuthContextType {
   session: Session | null;
   profile: DbProfile | null;
   isLoading: boolean;
-  sendEmailOtp: (email: string) => Promise<{ error: Error | null; isExistingUser?: boolean }>;
-  verifyEmailOtp: (email: string, otp: string) => Promise<{ error: Error | null; isNewUser?: boolean }>;
+  sendEmailOtp: (email: string) => Promise<{ error: Error | null, isExistingUser?: boolean }>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<{ error: Error | null, isNewUser?: boolean }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<DbProfile>) => Promise<{ error: Error | null }>;
 }
@@ -23,21 +23,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-          }, 0);
+          fetchProfile(session.user.id);
         } else {
           setProfile(null);
         }
       }
     );
 
+    // Initial session check
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -62,21 +62,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const checkExistingUser = async (email: string): Promise<boolean> => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('email', email.toLowerCase().trim())
-      .maybeSingle();
-    
-    return !!data;
-  };
-
-  const sendEmailOtp = async (email: string): Promise<{ error: Error | null; isExistingUser?: boolean }> => {
+  const sendEmailOtp = async (email: string) => {
     try {
-      const isExistingUser = await checkExistingUser(email);
-      
-      // Using standard signInWithOtp for 6-digit Email OTP
       const { error } = await supabase.auth.signInWithOtp({
         email: email.toLowerCase().trim(),
         options: {
@@ -84,29 +71,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       });
 
-      if (error) {
-        return { error: new Error(error.message || 'Failed to send OTP') };
-      }
+      if (error) return { error };
 
-      return { error: null, isExistingUser };
+      // Determine if existing user
+      const { data } = await supabase.from('profiles').select('name').eq('email', email.toLowerCase().trim()).maybeSingle();
+      return { error: null, isExistingUser: !!data?.name };
     } catch (err: any) {
-      return { error: new Error(err.message || 'Network error') };
+      return { error: new Error(err.message || 'Failed to send OTP') };
     }
   };
 
-  const verifyEmailOtp = async (email: string, otp: string): Promise<{ error: Error | null; isNewUser?: boolean }> => {
+  const verifyEmailOtp = async (email: string, otp: string) => {
     try {
       const { data, error } = await supabase.auth.verifyOtp({
         email: email.toLowerCase().trim(),
         token: otp,
-        type: 'email',
+        type: 'email'
       });
 
-      if (error) {
-        return { error: new Error(error.message || 'Verification failed') };
-      }
+      if (error) return { error };
 
-      return { error: null, isNewUser: !profile?.name };
+      const isNewUser = !profile?.name;
+      return { error: null, isNewUser };
     } catch (err: any) {
       return { error: new Error(err.message || 'Verification failed') };
     }
@@ -121,32 +107,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const updateProfile = async (updates: Partial<DbProfile>) => {
     if (!user) return { error: new Error('Not authenticated') };
-
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('user_id', user.id);
-
-    if (!error) {
-      setProfile(prev => prev ? { ...prev, ...updates } : null);
-    }
-
+    const { error } = await supabase.from('profiles').update(updates).eq('user_id', user.id);
+    if (!error) setProfile(prev => prev ? { ...prev, ...updates } : null);
     return { error: error as Error | null };
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        session,
-        profile,
-        isLoading,
-        sendEmailOtp,
-        verifyEmailOtp,
-        signOut,
-        updateProfile,
-      }}
-    >
+    <AuthContext.Provider value={{ user, session, profile, isLoading, sendEmailOtp, verifyEmailOtp, signOut, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
@@ -154,8 +121,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
