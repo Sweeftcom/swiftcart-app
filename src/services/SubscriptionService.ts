@@ -1,53 +1,51 @@
-import { supabase } from '../lib/react-native/supabase-client';
+import { blink } from '../lib/blink';
 
 /**
  * SubscriptionService (Sweeftcom Plus)
  * Core logic for recurring revenue and Churn reduction.
+ * Powered by Blink SDK.
  */
 export class SubscriptionService {
   /**
    * Check if current user has an active Sweeftcom Plus subscription
    */
   static async isSubscribed() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await blink.auth.me();
     if (!user) return false;
 
-    const { data, error } = await supabase
-      .from('subscriptions')
-      .select('status, expiry_date')
-      .eq('user_id', user.id)
-      .eq('status', 'active')
-      .single();
+    const subscriptions = await blink.db.subscriptions.list({
+      where: { userId: user.id, status: 'active' },
+      limit: 1
+    });
 
-    if (error || !data) return false;
+    if (subscriptions.length === 0) return false;
 
+    const sub = subscriptions[0];
     // Check if truly expired
-    if (new Date(data.expiry_date) < new Date()) return false;
+    if (new Date(sub.expiryDate) < new Date()) return false;
 
     return true;
   }
 
   /**
-   * Activate a new plan (Conceptual payment integration)
+   * Activate a new plan
    */
   static async purchasePlus(planType: 'monthly' | 'quarterly' | 'yearly') {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await blink.auth.me();
     if (!user) throw new Error('Auth required');
 
     const durationDays = planType === 'monthly' ? 30 : planType === 'quarterly' ? 90 : 365;
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + durationDays);
 
-    const { error } = await supabase
-      .from('subscriptions')
-      .upsert({
-        user_id: user.id,
-        plan_type: planType,
-        status: 'active',
-        expiry_date: expiryDate.toISOString(),
-        start_date: new Date().toISOString()
-      });
+    const subscription = await blink.db.subscriptions.upsert({
+      userId: user.id,
+      planType,
+      status: 'active',
+      expiryDate: expiryDate.toISOString(),
+      startDate: new Date().toISOString()
+    });
 
-    if (error) throw error;
+    return subscription;
   }
 }

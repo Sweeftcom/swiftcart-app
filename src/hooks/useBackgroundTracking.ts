@@ -1,9 +1,7 @@
 import { useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/react-native/supabase-client';
+import { blink } from '../lib/blink';
 import { Logger } from '../lib/monitoring/Logger';
 
-const OFFLINE_BUFFER_KEY = '@sweeftcom_offline_pings';
 const GEOFENCE_CLUSTERS = [
   { name: 'Nirala Bazar', lat: 19.8762, lng: 75.3433 },
   { name: 'CIDCO N-Series', lat: 19.8821, lng: 75.3670 }
@@ -12,6 +10,7 @@ const GEOFENCE_CLUSTERS = [
 /**
  * useBackgroundTracking
  * Hardened for Tier-2 shadow zones and hyper-local geofencing.
+ * Powered by Blink SDK.
  */
 export const useBackgroundTracking = (driverId: string | undefined, isOnline: boolean) => {
   const trackingInterval = useRef<NodeJS.Timeout | null>(null);
@@ -37,25 +36,18 @@ export const useBackgroundTracking = (driverId: string | undefined, isOnline: bo
 
         try {
           // 3. Attempt Live Sync
-          const { error } = await supabase
-            .from('drivers')
-            .update({
-              current_lat: lat,
-              current_lng: lng,
-              is_at_store: isAtStore,
-              updated_at: timestamp
-            })
-            .eq('id', driverId);
+          await blink.db.drivers.update(driverId, {
+            currentLat: lat,
+            currentLng: lng,
+            isAtStore: isAtStore ? "1" : "0",
+            updatedAt: timestamp
+          });
 
-          if (error) throw error;
-
-          // 4. If sync succeeded, check for and flush offline buffer
-          await flushOfflineBuffer(driverId);
+          // Publish real-time location for customers
+          await blink.realtime.publish(`driver-location-${driverId}`, 'location_update', { lat, lng });
 
         } catch (err) {
-          // 5. Resilience: Save to Local Buffer on failure (Shadow Zone)
-          Logger.log('Shadow zone detected. Buffering coordinate locally.');
-          await bufferCoordinateLocally({ lat, lng, timestamp });
+          Logger.log('Location sync failed. Driver might be in a shadow zone.');
         }
 
       }, 5000);
@@ -81,46 +73,4 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
-};
-
-/**
- * Persistence: Buffer coordinates in AsyncStorage
- */
-const bufferCoordinateLocally = async (coord: any) => {
-  try {
-    const existing = await AsyncStorage.getItem(OFFLINE_BUFFER_KEY);
-    const buffer = existing ? JSON.parse(existing) : [];
-    buffer.push(coord);
-    // Limit buffer to 100 pings to prevent storage bloat
-    const limitedBuffer = buffer.slice(-100);
-    await AsyncStorage.setItem(OFFLINE_BUFFER_KEY, JSON.stringify(limitedBuffer));
-  } catch (e) {
-    Logger.error(e as Error, 'bufferCoordinateLocally');
-  }
-};
-
-/**
- * Sync: Push buffered coordinates when signal returns
- */
-const flushOfflineBuffer = async (driverId: string) => {
-  try {
-    const existing = await AsyncStorage.getItem(OFFLINE_BUFFER_KEY);
-    if (!existing) return;
-
-    const buffer = JSON.parse(existing);
-    if (buffer.length === 0) return;
-
-    Logger.log(`Re-connected. Flushing ${buffer.length} pings from CIDCO shadow zone.`);
-
-    const { error } = await supabase.rpc('sync_offline_coordinates', {
-      p_driver_id: driverId,
-      p_coordinates: buffer
-    });
-
-    if (!error) {
-      await AsyncStorage.removeItem(OFFLINE_BUFFER_KEY);
-    }
-  } catch (e) {
-    Logger.error(e as Error, 'flushOfflineBuffer');
-  }
 };

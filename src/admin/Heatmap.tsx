@@ -1,52 +1,77 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { HeatmapLayer } from 'react-leaflet-heatmap-layer-v3';
-import { supabase } from '../lib/react-native/supabase-client';
+import { blink } from '@/lib/blink';
 import 'leaflet/dist/leaflet.css';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * AdminHeatmap
  * Visualizes live rider density and clusters in Aurangabad.
  */
 export const Heatmap = () => {
+  const navigate = useNavigate();
   const [points, setPoints] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const AURANGABAD_CENTER: [number, number] = [19.8762, 75.3433];
 
   useEffect(() => {
     const fetchLocations = async () => {
-      const { data } = await supabase
-        .from('drivers')
-        .select('current_lat, current_lng, id')
-        .eq('status', 'online')
-        .not('current_lat', 'is', null);
+      try {
+        const drivers = await blink.db.drivers.list({
+          where: {
+            AND: [
+              { status: 'online' },
+              { currentLat: { NE: null } }
+            ]
+          }
+        });
 
-      if (data) {
-        setPoints(data.map(d => [d.current_lat, d.current_lng, 1])); // [lat, lng, intensity]
+        if (drivers) {
+          setPoints(drivers.map((d: any) => [d.currentLat, d.currentLng, 1]));
+        }
+      } catch (error) {
+        console.error('Error fetching heatmap data:', error);
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchLocations();
 
-    const channel = supabase
-      .channel('live-heat')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drivers' }, () => {
-        fetchLocations();
-      })
-      .subscribe();
+    const unsubscribe = blink.realtime.subscribe('live-heat', () => {
+      fetchLocations();
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, []);
 
   return (
-    <div className="h-screen w-full bg-[#0A0A0A] p-4">
-      <div className="mb-4 flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-[#E5F942] tracking-widest">AURANGABAD LOGISTICS HEATMAP</h2>
-        <span className="text-gray-500 font-mono">Live Clusters: {points.length}</span>
+    <div className="h-screen w-full bg-background p-4 flex flex-col">
+      <div className="mb-6 flex justify-between items-center px-2">
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/profile')}
+            className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-foreground"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </motion.button>
+          <h2 className="text-2xl font-black text-primary tracking-widest uppercase italic">Logistics Heatmap</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          {loading && <Loader2 className="w-4 h-4 text-primary animate-spin" />}
+          <span className="text-muted-foreground font-mono text-xs font-bold uppercase tracking-widest bg-secondary px-3 py-1.5 rounded-lg border border-border/40 shadow-inner">
+            Live Clusters: {points.length}
+          </span>
+        </div>
       </div>
 
-      <div className="h-[90%] w-full rounded-3xl overflow-hidden border border-[#333]">
+      <div className="flex-1 w-full rounded-[2.5rem] overflow-hidden border-2 border-border/60 shadow-2xl relative">
         <MapContainer
           center={AURANGABAD_CENTER}
           zoom={13}
@@ -63,14 +88,16 @@ export const Heatmap = () => {
             longitudeExtractor={(m: any) => m[1]}
             latitudeExtractor={(m: any) => m[0]}
             intensityExtractor={(m: any) => m[2]}
-            radius={25}
-            blur={15}
+            radius={30}
+            blur={20}
             max={1}
           />
 
           {points.map((p, idx) => (
             <Marker key={idx} position={[p[0], p[1]]}>
-               <Popup>Rider Active</Popup>
+               <Popup>
+                 <div className="p-1 font-bold text-primary uppercase text-xs tracking-widest">Active Pilot</div>
+               </Popup>
             </Marker>
           ))}
         </MapContainer>

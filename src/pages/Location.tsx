@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, Search, Navigation, Clock, ChevronRight, Loader2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { blink } from '@/lib/blink';
 import { useLocationStore } from '@/stores/locationStore';
 import { DbAurangabadLocation, DbStore } from '@/lib/supabase-types';
 import { toast } from 'sonner';
@@ -18,26 +18,26 @@ const Location = () => {
 
   useEffect(() => {
     const fetchLocations = async () => {
-      const { data, error } = await supabase
-        .from('aurangabad_locations')
-        .select('*')
-        .eq('is_serviceable', true)
-        .order('name');
-
-      if (!error && data) {
-        setLocations(data as DbAurangabadLocation[]);
-        setFilteredLocations(data.slice(0, 8) as DbAurangabadLocation[]);
+      try {
+        const data = await blink.db.aurangabadLocations.list({
+          where: { isServiceable: "1" },
+          orderBy: { name: 'asc' }
+        });
+        setLocations(data as any);
+        setFilteredLocations(data.slice(0, 8) as any);
+      } catch (error) {
+        console.error('Error fetching locations:', error);
       }
     };
 
     const fetchStores = async () => {
-      const { data, error } = await supabase
-        .from('stores')
-        .select('*')
-        .eq('is_open', true);
-
-      if (!error && data) {
-        setStores(data as DbStore[]);
+      try {
+        const data = await blink.db.stores.list({
+          where: { isOpen: "1" }
+        });
+        setStores(data as any);
+      } catch (error) {
+        console.error('Error fetching stores:', error);
       }
     };
 
@@ -85,7 +85,7 @@ const Location = () => {
       lat: location.lat,
       lng: location.lng,
       pincode: location.pincode || undefined,
-      type: location.type,
+      type: location.type as any,
     });
 
     if (nearest) {

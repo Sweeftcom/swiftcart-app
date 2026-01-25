@@ -3,7 +3,7 @@ import { Home, Search, Layers, Clock, User } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 const navItems = [
-  { icon: Home, label: 'Home', path: '/' },
+  { icon: Home, label: 'Home', path: '/home' },
   { icon: Search, label: 'Search', path: '/search' },
   { icon: Layers, label: 'Categories', path: '/categories' },
   { icon: Clock, label: 'Orders', path: '/orders' },

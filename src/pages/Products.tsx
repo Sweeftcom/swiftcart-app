@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, SlidersHorizontal, X, ChevronDown, Zap, Star, TrendingUp } from 'lucide-react';
+import { Search, SlidersHorizontal, X, Zap, Star, TrendingUp } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { ProductCard } from '@/components/home/ProductCard';
 import { CartFloatingButton } from '@/components/cart/CartFloatingButton';
 import { useDeliveryEta } from '@/hooks/useDeliveryEta';
 import { useLocationStore } from '@/stores/locationStore';
-import { supabase } from '@/integrations/supabase/client';
+import { blink } from '@/lib/blink';
 import { DbProduct, DbCategory } from '@/lib/supabase-types';
 
 type SortOption = 'popularity' | 'price_low' | 'price_high' | 'rating';
@@ -32,78 +32,70 @@ const Products = () => {
   
   const PAGE_SIZE = 20;
 
-  // Sanitize search query to prevent PostgREST filter injection
-  const sanitizeSearchQuery = (input: string): string => {
-    // Remove PostgREST special characters that could alter query logic
-    return input.replace(/[,().%*]/g, ' ').trim().slice(0, 100);
-  };
-
   useEffect(() => {
     const fetchCategories = async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order');
-      if (data) setCategories(data as DbCategory[]);
+      try {
+        const data = await blink.db.categories.list({
+          where: { isActive: "1" },
+          orderBy: { sortOrder: 'asc' }
+        });
+        setCategories(data as any);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      }
     };
     fetchCategories();
   }, []);
 
   const fetchProducts = useCallback(async (pageNum: number, reset: boolean = false) => {
     setIsLoading(true);
-    
-    let query = supabase
-      .from('products')
-      .select('*')
-      .eq('is_available', true)
-      .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
-
-    // Apply category filter
-    if (selectedCategory !== 'all') {
-      query = query.eq('category_id', selectedCategory);
-    }
-
-    // Apply search with sanitized input
-    if (searchQuery) {
-      const sanitizedQuery = sanitizeSearchQuery(searchQuery);
-      if (sanitizedQuery) {
-        query = query.ilike('name', `%${sanitizedQuery}%`);
+    try {
+      const where: any = { isAvailable: "1" };
+      if (selectedCategory !== 'all') {
+        where.categoryId = selectedCategory;
       }
-    }
 
-    // Apply veg/non-veg filter
-    if (filter === 'veg') {
-      query = query.eq('is_veg', true);
-    } else if (filter === 'non_veg') {
-      query = query.eq('is_veg', false);
-    } else if (filter === 'on_sale') {
-      query = query.not('mrp', 'eq', 'price');
-    }
+      const productsData = await blink.db.products.list({
+        where,
+        limit: PAGE_SIZE,
+        offset: pageNum * PAGE_SIZE
+      });
 
-    // Apply sorting
-    if (sortBy === 'popularity') {
-      query = query.order('review_count', { ascending: false, nullsFirst: false });
-    } else if (sortBy === 'price_low') {
-      query = query.order('price', { ascending: true });
-    } else if (sortBy === 'price_high') {
-      query = query.order('price', { ascending: false });
-    } else if (sortBy === 'rating') {
-      query = query.order('rating', { ascending: false, nullsFirst: false });
-    }
+      // Filter locally for MVP search/filter logic if needed
+      let filtered = productsData;
+      if (searchQuery) {
+        filtered = filtered.filter((p: any) => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
+      }
+      if (filter === 'veg') {
+        filtered = filtered.filter((p: any) => Number(p.isVeg) === 1);
+      } else if (filter === 'non_veg') {
+        filtered = filtered.filter((p: any) => Number(p.isVeg) === 0);
+      } else if (filter === 'on_sale') {
+        filtered = filtered.filter((p: any) => Number(p.mrp) > Number(p.price));
+      }
 
-    const { data, error } = await query;
+      // Sort locally for MVP
+      if (sortBy === 'popularity') {
+        filtered.sort((a: any, b: any) => (b.reviewCount || 0) - (a.reviewCount || 0));
+      } else if (sortBy === 'price_low') {
+        filtered.sort((a: any, b: any) => Number(a.price) - Number(b.price));
+      } else if (sortBy === 'price_high') {
+        filtered.sort((a: any, b: any) => Number(b.price) - Number(a.price));
+      } else if (sortBy === 'rating') {
+        filtered.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
+      }
 
-    if (!error && data) {
       if (reset) {
-        setProducts(data as DbProduct[]);
+        setProducts(filtered as any);
       } else {
-        setProducts(prev => [...prev, ...(data as DbProduct[])]);
+        setProducts(prev => [...prev, ...(filtered as any)]);
       }
-      setHasMore(data.length === PAGE_SIZE);
+      setHasMore(productsData.length === PAGE_SIZE);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   }, [selectedCategory, searchQuery, filter, sortBy]);
 
   useEffect(() => {
@@ -145,74 +137,60 @@ const Products = () => {
     <div className="min-h-screen bg-background pb-32">
       <Header />
       
-      {/* ETA Bar */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-primary/10 border-b border-primary/20"
+        className="bg-primary/5 border-b border-primary/10"
       >
-        <div className="container py-2 flex items-center gap-2">
+        <div className="container py-2.5 flex items-center gap-2">
           <Zap className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium text-foreground">
-            {eta.text} delivery
-          </span>
-          <span className="text-sm text-muted-foreground">
-            from {nearestStore?.name || 'SweeftCom Store'}
-          </span>
+          <p className="text-[10px] font-black text-foreground uppercase tracking-widest">
+            Deliver in <span className="text-primary">{eta.text}</span> from {nearestStore?.name || 'Central Hub'}
+          </p>
         </div>
       </motion.div>
 
-      {/* Search Bar */}
-      <div className="sticky top-0 z-40 bg-background border-b border-border">
-        <div className="container py-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+      <div className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border/40">
+        <div className="container py-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors" />
               <input
                 type="text"
-                placeholder="Search products..."
+                placeholder="Search catalog..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-xl bg-secondary text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary"
+                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-secondary/50 text-foreground font-bold placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 border border-transparent focus:border-primary/20 transition-all"
               />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
             </div>
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowFilters(!showFilters)}
-              className={`p-3 rounded-xl ${showFilters ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}`}
+              className={`p-3.5 rounded-2xl border-2 transition-all ${showFilters ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-secondary border-transparent text-foreground'}`}
             >
               <SlidersHorizontal className="w-5 h-5" />
             </motion.button>
           </div>
 
-          {/* Categories Scroll */}
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+          <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-1">
             <button
               onClick={() => setSelectedCategory('all')}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+              className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all border-2 ${
                 selectedCategory === 'all'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-foreground'
+                  ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                  : 'bg-secondary border-transparent text-muted-foreground hover:bg-secondary/80'
               }`}
             >
-              All Products
+              ALL ITEMS
             </button>
             {categories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all border-2 ${
                   selectedCategory === cat.id
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-foreground'
+                    ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                    : 'bg-secondary border-transparent text-muted-foreground hover:bg-secondary/80'
                 }`}
               >
                 {cat.icon} {cat.name}
@@ -222,28 +200,26 @@ const Products = () => {
         </div>
       </div>
 
-      {/* Filters Panel */}
       <AnimatePresence>
         {showFilters && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="bg-card border-b border-border overflow-hidden"
+            className="bg-card border-b border-border/40 overflow-hidden"
           >
-            <div className="container py-4 space-y-4">
-              {/* Sort Options */}
+            <div className="container py-6 space-y-6">
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Sort By</p>
-                <div className="flex gap-2 flex-wrap">
+                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Sort Results</p>
+                <div className="flex gap-2.5 flex-wrap">
                   {sortOptions.map((opt) => (
                     <button
                       key={opt.value}
                       onClick={() => setSortBy(opt.value)}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 ${
+                      className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-tighter flex items-center gap-2 border-2 transition-all ${
                         sortBy === opt.value
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-secondary text-foreground'
+                          ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                          : 'bg-secondary border-transparent text-foreground'
                       }`}
                     >
                       {opt.icon}
@@ -253,23 +229,22 @@ const Products = () => {
                 </div>
               </div>
 
-              {/* Filter Options */}
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Filter</p>
-                <div className="flex gap-2 flex-wrap">
+                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">Dietary Preference</p>
+                <div className="flex gap-2.5 flex-wrap">
                   {[
-                    { value: 'all', label: 'All' },
-                    { value: 'veg', label: '🟢 Veg Only' },
-                    { value: 'non_veg', label: '🔴 Non-Veg' },
-                    { value: 'on_sale', label: '🏷️ On Sale' },
+                    { value: 'all', label: 'ANYTHING' },
+                    { value: 'veg', label: '🟢 VEG ONLY' },
+                    { value: 'non_veg', label: '🔴 NON-VEG' },
+                    { value: 'on_sale', label: '🏷️ HOT DEALS' },
                   ].map((opt) => (
                     <button
                       key={opt.value}
                       onClick={() => setFilter(opt.value as FilterOption)}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium ${
+                      className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-tighter border-2 transition-all ${
                         filter === opt.value
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-secondary text-foreground'
+                          ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                          : 'bg-secondary border-transparent text-foreground'
                       }`}
                     >
                       {opt.label}
@@ -282,15 +257,15 @@ const Products = () => {
         )}
       </AnimatePresence>
 
-      {/* Products Grid */}
-      <main className="container py-4">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-sm text-muted-foreground">
-            {products.length} products found
+      <main className="container py-6">
+        <div className="flex items-center justify-between mb-6 px-1">
+          <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em]">
+            {products.length} Products Found
           </p>
+          <div className="h-px flex-1 mx-4 bg-border/40" />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {products.map((product, index) => (
             <motion.div
               key={product.id}
@@ -303,20 +278,27 @@ const Products = () => {
           ))}
         </div>
 
-        {/* Loading / No Results */}
-        <div ref={loadingRef} className="py-8 flex items-center justify-center">
+        <div ref={loadingRef} className="py-16 flex flex-col items-center justify-center space-y-4">
           {isLoading && (
-            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
           )}
           {!isLoading && products.length === 0 && (
-            <div className="text-center">
-              <p className="text-4xl mb-3">🔍</p>
-              <p className="text-foreground font-medium">No products found</p>
-              <p className="text-sm text-muted-foreground">Try a different search or filter</p>
+            <div className="text-center space-y-4">
+              <div className="w-20 h-20 bg-secondary rounded-[2rem] flex items-center justify-center mx-auto">
+                <Search className="w-10 h-10 text-muted-foreground/40" />
+              </div>
+              <div>
+                <p className="text-lg font-black text-foreground uppercase tracking-tight">No Items Found</p>
+                <p className="text-sm text-muted-foreground">Try a different search or clear your filters.</p>
+              </div>
             </div>
           )}
           {!isLoading && !hasMore && products.length > 0 && (
-            <p className="text-sm text-muted-foreground">You've seen all products!</p>
+            <div className="flex items-center gap-4 w-full">
+              <div className="h-px flex-1 bg-border/40" />
+              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">End of Aisle</p>
+              <div className="h-px flex-1 bg-border/40" />
+            </div>
           )}
         </div>
       </main>

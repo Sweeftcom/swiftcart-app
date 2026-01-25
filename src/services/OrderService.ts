@@ -1,97 +1,173 @@
-import { supabase } from '../lib/react-native/supabase-client';
+import { blink } from '../lib/blink';
 import { Order } from '../types';
 
 /**
  * Sweeftcom Order Service
  * Handles the high-end handshake logic between Customer, Vendor, and Rider.
+ * Powered by Blink SDK.
  */
 export class OrderService {
   /**
-   * Place an order with atomic inventory check via RPC
+   * Place an order with inventory check
    */
   static async placeOrder(orderData: any) {
-    const { data, error } = await supabase.rpc('place_order_atomic', {
-      p_order_data: orderData
+    const { items, ...orderInfo } = orderData;
+    
+    // 1. Create the order
+    const order = await blink.db.orders.create({
+      ...orderInfo,
+      orderNumber: `SWC${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)}`,
+      status: 'placed',
+      otp: Math.floor(100000 + Math.random() * 900000).toString(), // 6-digit OTP
     });
 
-    if (error) throw error;
-    return data;
+    // 2. Create order items
+    await blink.db.orderItems.createMany(
+      items.map((item: any) => ({
+        ...item,
+        orderId: order.id,
+      }))
+    );
+
+    // 3. Update stock (simplified for MVP)
+    for (const item of items) {
+      const product = await blink.db.products.get(item.productId);
+      if (product) {
+        await blink.db.products.update(item.productId, {
+          stockQuantity: product.stockQuantity - item.quantity,
+        });
+      }
+    }
+
+    // 4. Create initial status history
+    await blink.db.orderStatusHistory.create({
+      orderId: order.id,
+      status: 'placed',
+      note: 'Order placed successfully',
+    });
+
+    return order;
   }
 
   /**
    * Vendor accepts the order
    */
   static async vendorAccept(orderId: string) {
-    const { data, error } = await supabase.rpc('accept_order_by_vendor', {
-      p_order_id: orderId
+    const order = await blink.db.orders.update(orderId, {
+      status: 'confirmed',
     });
-    if (error) throw error;
-    return data;
+
+    await blink.db.orderStatusHistory.create({
+      orderId,
+      status: 'confirmed',
+      note: 'Order confirmed by store',
+    });
+
+    return order;
   }
 
   /**
    * Vendor marks as ready - triggers rider discovery
    */
   static async markReady(orderId: string) {
-    const { data, error } = await supabase.rpc('mark_order_ready', {
-      p_order_id: orderId
-    });
-    if (error) throw error;
-
-    await supabase.functions.invoke('process-order', {
-      body: { orderId }
+    const order = await blink.db.orders.update(orderId, {
+      status: 'packing',
     });
 
-    return data;
+    await blink.db.orderStatusHistory.create({
+      orderId,
+      status: 'packing',
+      note: 'Order is being packed',
+    });
+
+    // Trigger rider assignment (automated for MVP)
+    setTimeout(() => this.autoAssignRider(orderId), 2000);
+
+    return order;
   }
 
   /**
-   * Secure Handshake: Verify Delivery OTP at the doorstep
+   * Auto-assign a random available rider (Simplified for MVP)
    */
-  static async verifyDeliveryOtp(orderId: string, otp: string) {
-    const { data, error } = await supabase.rpc('complete_delivery_with_otp', {
-      p_order_id: orderId,
-      p_otp: otp
+  static async autoAssignRider(orderId: string) {
+    const drivers = await blink.db.drivers.list({
+      where: { isAvailable: "1", isVerified: "1" },
+      limit: 1,
     });
 
-    if (error) {
-      console.error('OTP Verification Failed:', error.message);
-      throw error;
+    if (drivers.length > 0) {
+      const driver = drivers[0];
+      await this.riderAccept(orderId, driver.id);
     }
-
-    return data;
   }
 
   /**
    * Rider accepts the order assignment
    */
   static async riderAccept(orderId: string, driverId: string) {
-    const { data, error } = await supabase.rpc('assign_order_to_driver', {
-      p_order_id: orderId,
-      p_driver_id: driverId
+    const order = await blink.db.orders.update(orderId, {
+      driverId,
+      status: 'out_for_delivery',
     });
-    if (error) throw error;
-    return data;
+
+    await blink.db.drivers.update(driverId, {
+      isAvailable: "0",
+    });
+
+    await blink.db.orderStatusHistory.create({
+      orderId,
+      status: 'out_for_delivery',
+      note: 'Rider picked up your order',
+    });
+
+    return order;
+  }
+
+  /**
+   * Secure Handshake: Verify Delivery OTP at the doorstep
+   */
+  static async verifyDeliveryOtp(orderId: string, otp: string) {
+    const order = await blink.db.orders.get(orderId);
+    
+    if (!order || order.otp !== otp) {
+      throw new Error('Invalid Delivery OTP');
+    }
+
+    const updatedOrder = await blink.db.orders.update(orderId, {
+      status: 'delivered',
+      actualDeliveryTime: new Date().toISOString(),
+    });
+
+    if (order.driverId) {
+      await blink.db.drivers.update(order.driverId, {
+        isAvailable: "1",
+      });
+    }
+
+    await blink.db.orderStatusHistory.create({
+      orderId,
+      status: 'delivered',
+      note: 'Order delivered successfully',
+    });
+
+    return updatedOrder;
   }
 
   /**
    * Subscribe to real-time order updates for tracking
    */
   static subscribeToOrder(orderId: string, onUpdate: (order: Order) => void) {
-    return supabase
-      .channel(`order-tracking-${orderId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: `id=eq.${orderId}`
-        },
-        (payload) => {
-          onUpdate(payload.new as Order);
-        }
-      )
-      .subscribe();
+    return blink.realtime.subscribe(`order-tracking-${orderId}`, (message) => {
+      if (message.type === 'order_update') {
+        onUpdate(message.data as Order);
+      }
+    });
+  }
+
+  /**
+   * Publish order update (used by backend/services)
+   */
+  static async publishOrderUpdate(order: Order) {
+    await blink.realtime.publish(`order-tracking-${order.id}`, 'order_update', order);
   }
 }

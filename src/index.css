@@ -17,18 +17,18 @@
     --popover-foreground: 220 20% 10%;
 
     /* Fresh Green - Primary Brand Color */
-    --primary: 137 85% 28%;
+    --primary: 142 76% 36%;
     --primary-foreground: 0 0% 100%;
 
     /* Soft Green Secondary */
-    --secondary: 137 40% 95%;
-    --secondary-foreground: 137 85% 28%;
+    --secondary: 142 40% 96%;
+    --secondary-foreground: 142 76% 36%;
 
     --muted: 220 10% 96%;
     --muted-foreground: 220 10% 45%;
 
     /* Warm Yellow Accent for Offers */
-    --accent: 45 100% 51%;
+    --accent: 45 95% 53%;
     --accent-foreground: 45 100% 15%;
 
     --destructive: 0 84% 60%;

@@ -1,52 +1,46 @@
-import { supabase } from '../lib/react-native/supabase-client';
+import { blink } from '../lib/blink';
 
 export interface Message {
   id: string;
-  order_id: string;
-  sender_id: string;
+  orderId: string;
+  senderId: string;
   message: string;
-  created_at: string;
+  createdAt: string;
 }
 
 /**
  * ChatService
  * Real-time communication bridge between Customer and Rider.
+ * Powered by Blink SDK.
  */
 export class ChatService {
   static async sendMessage(orderId: string, message: string) {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await blink.auth.me();
     if (!user) throw new Error("Not authenticated");
 
-    const { error } = await supabase
-      .from('chat_messages')
-      .insert({
-        order_id: orderId,
-        sender_id: user.id,
-        message
-      });
+    const newMessage = await blink.db.chatMessages.create({
+      orderId,
+      senderId: user.id,
+      message
+    });
 
-    if (error) throw error;
+    await blink.realtime.publish(`chat-${orderId}`, 'new_message', newMessage);
+    return newMessage;
   }
 
   static subscribeToChat(orderId: string, onMessage: (message: Message) => void) {
-    return supabase
-      .channel(`chat-${orderId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `order_id=eq.${orderId}` },
-        (payload) => onMessage(payload.new as Message)
-      )
-      .subscribe();
+    return blink.realtime.subscribe(`chat-${orderId}`, (msg) => {
+      if (msg.type === 'new_message') {
+        onMessage(msg.data as Message);
+      }
+    });
   }
 
   static async getMessages(orderId: string) {
-    const { data, error } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-    return data;
+    const messages = await blink.db.chatMessages.list({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' }
+    });
+    return messages as any as Message[];
   }
 }

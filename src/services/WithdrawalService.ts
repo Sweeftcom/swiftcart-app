@@ -1,42 +1,56 @@
-import { supabase } from '../lib/react-native/supabase-client';
+import { blink } from '../lib/blink';
 
 /**
  * WithdrawalService
  * Manages rider earnings withdrawals and wallet health.
+ * Powered by Blink SDK.
  */
 export class WithdrawalService {
   /**
    * Fetch current wallet balance and recent transactions
    */
   static async getWalletDetails() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await blink.auth.me();
     if (!user) throw new Error('Not authenticated');
 
-    const { data: wallet, error: walletError } = await supabase
-      .from('wallets')
-      .select(`
-        balance,
-        transactions:wallet_transactions(*)
-      `)
-      .eq('user_id', user.id)
-      .single();
+    let wallets = await blink.db.wallets.list({
+      where: { userId: user.id },
+      limit: 1
+    });
 
-    if (walletError) throw walletError;
+    let wallet;
+    if (wallets.length === 0) {
+      wallet = await blink.db.wallets.create({
+        userId: user.id,
+        balance: 0
+      });
+    } else {
+      wallet = wallets[0];
+    }
 
-    // Calculate pending earnings (conceptual: orders delivered but not yet settled in wallet)
-    const { data: pendingOrders } = await supabase
-      .from('orders')
-      .select('total')
-      .eq('driver_id', (await this.getDriverId()))
-      .eq('status', 'delivered')
-      .eq('payment_status', 'completed');
+    const transactions = await blink.db.walletTransactions.list({
+      where: { walletId: wallet.id },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    const pendingBalance = pendingOrders?.reduce((acc, curr) => acc + (Number(curr.total) * 0.15), 0) || 0;
+    const driverId = await this.getDriverId();
+    let pendingBalance = 0;
+
+    if (driverId) {
+      const pendingOrders = await blink.db.orders.list({
+        where: { 
+          driverId, 
+          status: 'delivered', 
+          paymentStatus: 'completed' 
+        }
+      });
+      pendingBalance = pendingOrders.reduce((acc, curr) => acc + (Number(curr.total) * 0.15), 0);
+    }
 
     return {
       settledBalance: wallet.balance,
       pendingBalance,
-      transactions: wallet.transactions
+      transactions
     };
   }
 
@@ -44,29 +58,42 @@ export class WithdrawalService {
    * Initiate a payout request to UPI
    */
   static async requestPayout(amount: number, upiId: string) {
-    const driverId = await this.getDriverId();
+    const user = await blink.auth.me();
+    if (!user) throw new Error('Not authenticated');
 
-    const { data, error } = await supabase.rpc('request_withdrawal', {
-      p_driver_id: driverId,
-      p_amount: amount,
-      p_upi_id: upiId
-    });
-
-    if (error) {
-      console.error('Withdrawal failed:', error.message);
-      throw error;
+    const walletDetails = await this.getWalletDetails();
+    if (walletDetails.settledBalance < amount) {
+      throw new Error('Insufficient balance');
     }
 
-    return data;
+    const wallets = await blink.db.wallets.list({ where: { userId: user.id }, limit: 1 });
+    const wallet = wallets[0];
+
+    // Create a debit transaction
+    await blink.db.walletTransactions.create({
+      walletId: wallet.id,
+      amount: -amount,
+      type: 'debit',
+      description: `Payout to ${upiId}`,
+      status: 'pending'
+    });
+
+    // Update wallet balance
+    await blink.db.wallets.update(wallet.id, {
+      balance: wallet.balance - amount
+    });
+
+    return { success: true };
   }
 
   private static async getDriverId() {
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data: driver } = await supabase
-      .from('drivers')
-      .select('id')
-      .eq('user_id', user?.id)
-      .single();
-    return driver?.id;
+    const user = await blink.auth.me();
+    if (!user) return null;
+
+    const drivers = await blink.db.drivers.list({
+      where: { userId: user.id },
+      limit: 1
+    });
+    return drivers.length > 0 ? drivers[0].id : null;
   }
 }

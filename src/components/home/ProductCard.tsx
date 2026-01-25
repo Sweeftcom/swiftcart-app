@@ -15,6 +15,10 @@ export const ProductCard = ({ product, variant = 'compact' }: ProductCardProps) 
   const cartItem = items.find((item) => item.product.id === product.id);
   const quantity = cartItem?.quantity || 0;
 
+  const productImages = typeof product.images === 'string' 
+    ? (() => { try { return JSON.parse(product.images); } catch { return []; } })()
+    : product.images;
+
   const discountPercent = product.mrp > product.price 
     ? Math.round(((Number(product.mrp) - Number(product.price)) / Number(product.mrp)) * 100)
     : 0;
@@ -44,31 +48,31 @@ export const ProductCard = ({ product, variant = 'compact' }: ProductCardProps) 
   return (
     <Link to={`/product/${product.slug}`}>
       <motion.div
-        whileHover={{ y: -2 }}
-        className="bg-card rounded-2xl overflow-hidden shadow-card border border-border/50 h-full flex flex-col"
+        whileHover={{ y: -4, shadow: '0 12px 30px -10px rgba(0,0,0,0.1)' }}
+        className="bg-card rounded-3xl overflow-hidden shadow-sm border border-border/40 h-full flex flex-col transition-all group"
       >
         {/* Image Container */}
-        <div className="relative p-3 bg-muted/30">
+        <div className="relative p-4 bg-muted/20">
           {discountPercent > 0 && (
-            <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-primary text-primary-foreground text-xs font-bold">
+            <span className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-xl bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-tighter shadow-lg">
               {discountPercent}% OFF
             </span>
           )}
-          {product.is_veg !== null && (
-            <span className={`absolute top-2 right-2 w-4 h-4 rounded border-2 flex items-center justify-center ${product.is_veg ? 'border-green-600' : 'border-red-600'}`}>
-              <span className={`w-2 h-2 rounded-full ${product.is_veg ? 'bg-green-600' : 'bg-red-600'}`} />
+          {product.isVeg !== undefined && (
+            <span className={`absolute top-3 right-3 z-10 w-5 h-5 rounded-lg border-2 flex items-center justify-center bg-white shadow-sm ${Number(product.isVeg) === 1 ? 'border-green-600' : 'border-red-600'}`}>
+              <span className={`w-2.5 h-2.5 rounded-full ${Number(product.isVeg) === 1 ? 'bg-green-600' : 'border-red-600'}`} />
             </span>
           )}
           <div className="aspect-square flex items-center justify-center">
-            {product.images && product.images.length > 0 ? (
+            {productImages && productImages.length > 0 ? (
               <img 
-                src={product.images[0]} 
+                src={productImages[0]} 
                 alt={product.name}
-                className="w-full h-full object-cover rounded-xl"
+                className="w-full h-full object-contain mix-blend-multiply group-hover:scale-110 transition-transform duration-500"
                 loading="lazy"
               />
             ) : (
-              <div className="w-full h-full rounded-xl bg-muted flex items-center justify-center">
+              <div className="w-full h-full rounded-2xl bg-muted flex items-center justify-center">
                 <span className="text-4xl">🛒</span>
               </div>
             )}
@@ -76,32 +80,33 @@ export const ProductCard = ({ product, variant = 'compact' }: ProductCardProps) 
         </div>
 
         {/* Content */}
-        <div className="p-3 flex flex-col flex-1">
+        <div className="p-4 flex flex-col flex-1 space-y-2">
           {product.rating && (
-            <div className="flex items-center gap-1 mb-1">
-              <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-secondary">
-                <Star className="w-3 h-3 fill-primary text-primary" />
-                <span className="text-xs font-medium text-foreground">{product.rating}</span>
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                <span className="text-[10px] font-black text-amber-600">{product.rating}</span>
               </div>
-              {product.review_count && (
-                <span className="text-xs text-muted-foreground">({product.review_count})</span>
+              {product.reviewCount && (
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">({product.reviewCount})</span>
               )}
             </div>
           )}
 
-          <h3 className="font-medium text-sm text-foreground line-clamp-2 flex-1">
-            {product.name}
-          </h3>
+          <div className="flex-1">
+            <h3 className="font-bold text-sm text-foreground line-clamp-2 leading-snug group-hover:text-primary transition-colors">
+              {product.name}
+            </h3>
+            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.1em] mt-1.5">
+              {product.packSize || product.weight || product.unit}
+            </p>
+          </div>
 
-          <p className="text-xs text-muted-foreground mt-1">
-            {product.pack_size || product.weight || product.unit}
-          </p>
-
-          <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center justify-between pt-2">
             <div className="flex flex-col">
-              <span className="font-bold text-foreground">₹{Number(product.price).toFixed(0)}</span>
+              <span className="font-black text-lg text-foreground tracking-tighter leading-none">₹{Number(product.price).toFixed(0)}</span>
               {Number(product.mrp) > Number(product.price) && (
-                <span className="text-xs text-muted-foreground line-through">
+                <span className="text-[10px] text-muted-foreground line-through font-bold">
                   ₹{Number(product.mrp).toFixed(0)}
                 </span>
               )}
@@ -116,40 +121,34 @@ export const ProductCard = ({ product, variant = 'compact' }: ProductCardProps) 
                   exit={{ scale: 0.8, opacity: 0 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleAdd}
-                  className="flex items-center gap-1 px-3 py-2 rounded-lg bg-secondary text-primary font-semibold text-sm border-2 border-primary"
+                  className="flex items-center justify-center w-10 h-10 rounded-2xl bg-secondary text-primary font-black text-sm border-2 border-primary/20 hover:bg-primary hover:text-white transition-all shadow-sm"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>ADD</span>
+                  <Plus className="w-5 h-5" />
                 </motion.button>
               ) : (
                 <motion.div
                   key="quantity"
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.8, opacity: 0 }}
-                  className="flex items-center gap-2 bg-primary rounded-lg overflow-hidden"
+                  initial={{ width: 40, opacity: 0 }}
+                  animate={{ width: 90, opacity: 1 }}
+                  exit={{ width: 40, opacity: 0 }}
+                  className="flex items-center justify-between bg-primary rounded-2xl overflow-hidden p-0.5 shadow-lg shadow-primary/20"
                 >
                   <motion.button
-                    whileTap={{ scale: 0.9 }}
+                    whileTap={{ scale: 0.8 }}
                     onClick={handleDecrease}
-                    className="p-2 text-primary-foreground hover:bg-primary/90"
+                    className="w-8 h-8 flex items-center justify-center text-primary-foreground hover:bg-white/10 rounded-xl"
                   >
-                    <Minus className="w-4 h-4" />
+                    <Minus className="w-4 h-4" strokeWidth={3} />
                   </motion.button>
-                  <motion.span
-                    key={quantity}
-                    initial={{ scale: 1.2 }}
-                    animate={{ scale: 1 }}
-                    className="font-bold text-primary-foreground min-w-[1.5rem] text-center"
-                  >
+                  <span className="font-black text-primary-foreground text-sm">
                     {quantity}
-                  </motion.span>
+                  </span>
                   <motion.button
-                    whileTap={{ scale: 0.9 }}
+                    whileTap={{ scale: 0.8 }}
                     onClick={handleIncrease}
-                    className="p-2 text-primary-foreground hover:bg-primary/90"
+                    className="w-8 h-8 flex items-center justify-center text-primary-foreground hover:bg-white/10 rounded-xl"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="w-4 h-4" strokeWidth={3} />
                   </motion.button>
                 </motion.div>
               )}

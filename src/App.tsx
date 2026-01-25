@@ -20,6 +20,16 @@ import Checkout from "./pages/Checkout";
 import OrderTracking from "./pages/OrderTracking";
 import NotFound from "./pages/NotFound";
 
+// Business Screens
+import StoreInventory from "./screens/Vendor/StoreInventory";
+import RiderEarnings from "./screens/Rider/Earnings";
+import RiderOrderAcceptance from "./screens/Rider/OrderAcceptance";
+import BlackboxAnalytics from "./screens/Admin/BlackboxAnalytics";
+import BusinessHealth from "./screens/Admin/BusinessHealth";
+import { MarketingDashboard } from "./admin/MarketingDashboard";
+import { ZoneController } from "./admin/ZoneController";
+import { OrderHeartbeat } from "./admin/OrderHeartbeat";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -44,6 +54,21 @@ const App = () => (
             <Route path="/category/:slug" element={<CategoryProducts />} />
             <Route path="/products" element={<Products />} />
             <Route path="/product/:slug" element={<ProductDetail />} />
+            
+            {/* Vendor Routes */}
+            <Route path="/vendor/inventory" element={<StoreInventory />} />
+            
+            {/* Rider Routes */}
+            <Route path="/rider/earnings" element={<RiderEarnings />} />
+            <Route path="/rider/orders" element={<RiderOrderAcceptance />} />
+            
+            {/* Admin Routes */}
+            <Route path="/admin/analytics" element={<BlackboxAnalytics />} />
+            <Route path="/admin/health" element={<BusinessHealth />} />
+            <Route path="/admin/marketing" element={<MarketingDashboard />} />
+            <Route path="/admin/zones" element={<ZoneController />} />
+            <Route path="/admin/heartbeat" element={<OrderHeartbeat />} />
+            
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

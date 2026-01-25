@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { blink } from '@/lib/blink';
 import { DbCategory } from '@/lib/supabase-types';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { CartFloatingButton } from '@/components/cart/CartFloatingButton';
@@ -14,59 +14,62 @@ const Categories = () => {
 
   useEffect(() => {
     const fetchCategories = async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order');
-      
-      if (data) setCategories(data as DbCategory[]);
-      setIsLoading(false);
+      try {
+        const data = await blink.db.categories.list({
+          where: { isActive: "1" },
+          orderBy: { sortOrder: 'asc' }
+        });
+        setCategories(data as any);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      } finally {
+        setIsLoading(false);
+      }
     };
     fetchCategories();
   }, []);
 
-  const categoryColors = [
-    'bg-green-100', 'bg-blue-100', 'bg-yellow-100', 'bg-purple-100',
-    'bg-pink-100', 'bg-orange-100', 'bg-teal-100', 'bg-red-100',
-    'bg-indigo-100', 'bg-amber-100'
-  ];
-
   return (
     <div className="min-h-screen bg-background pb-32">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-card shadow-card">
+      <header className="sticky top-0 z-50 bg-card border-b shadow-sm">
         <div className="container py-4 flex items-center gap-4">
           <motion.button
             whileTap={{ scale: 0.9 }}
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center"
+            onClick={() => navigate('/home')}
+            className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-foreground"
           >
-            <ArrowLeft className="w-5 h-5 text-foreground" />
+            <ArrowLeft className="w-5 h-5" />
           </motion.button>
-          <h1 className="text-lg font-bold text-foreground">All Categories</h1>
+          <h1 className="text-xl font-black text-foreground tracking-tight uppercase">SHOP BY CATEGORY</h1>
         </div>
       </header>
 
-      <main className="container py-4">
+      <main className="container py-6">
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <div className="flex flex-col items-center justify-center py-20 space-y-4">
+            <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-muted-foreground font-bold text-xs uppercase tracking-widest">Loading Aisle...</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {categories.map((category, index) => (
               <Link key={category.id} to={`/category/${category.slug}`}>
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.05 }}
-                  whileHover={{ scale: 1.02 }}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.03 }}
+                  whileHover={{ y: -4, shadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
                   whileTap={{ scale: 0.98 }}
-                  className={`${categoryColors[index % categoryColors.length]} rounded-2xl p-4 aspect-square flex flex-col items-center justify-center gap-3 cursor-pointer transition-all hover:shadow-elevated`}
+                  className="bg-card rounded-[2.5rem] p-6 aspect-square flex flex-col items-center justify-center space-y-4 cursor-pointer transition-all border border-border/40 shadow-sm group"
                 >
-                  <span className="text-5xl">{category.icon || '📦'}</span>
-                  <span className="font-semibold text-foreground text-center text-sm">
+                  <motion.div 
+                    className="text-5xl transition-transform group-hover:scale-110"
+                    initial={{ rotate: -10 }}
+                    whileHover={{ rotate: 0 }}
+                  >
+                    {category.icon || '📦'}
+                  </motion.div>
+                  <span className="font-black text-foreground text-center text-[10px] uppercase tracking-[0.15em] leading-tight">
                     {category.name}
                   </span>
                 </motion.div>
